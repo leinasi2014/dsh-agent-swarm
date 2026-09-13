@@ -208,9 +208,11 @@ export class MemberPrivateMemoryStore {
    *   `TEAM_PRIVATE_MEMORY_TAMPERED` on a forged partition history, or the shared
    *   `TEAM_INPUT_INVALID`/`TEAM_INPUT_LIMIT` vocabulary on invalid content.
    */
-  append(scope: string, teamId: string, memberSessionId: string, content: string, evidenceRefs: readonly string[]): Promise<MemberPrivateMemoryRecord> {
+  append(scope: string, teamId: string, memberSessionId: string, content: string, evidenceRefs: readonly string[],
+    admit?: (write: () => Promise<MemberPrivateMemoryRecord>) => Promise<MemberPrivateMemoryRecord>): Promise<MemberPrivateMemoryRecord> {
     this.assertOpen()
-    return this.commitSequence.run(async () => {
+    const write = async (): Promise<MemberPrivateMemoryRecord> => {
+      // The admission callback may have waited for the Team lock after queue entry.
       this.assertOpen()
       const validatedContent = nonEmpty(content, 'private memory content', 16_384)
       const validatedRefs = evidenceRefs.map(reference => nonEmpty(reference, 'private memory evidence reference', 2_048))
@@ -246,6 +248,12 @@ export class MemberPrivateMemoryStore {
       assertTeamWritable(this.ctx, scope, teamId)
       await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(record))
       return structuredClone(record)
+    }
+    return this.commitSequence.run(async () => {
+      this.assertOpen()
+      // Acquire Team authority only AFTER entering this queue. Holding the Team
+      // lock while waiting for memory would invert retirement/purge ordering.
+      return admit === undefined ? write() : admit(write)
     })
   }
 
