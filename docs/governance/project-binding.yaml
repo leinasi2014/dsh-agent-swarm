@@ -109,6 +109,10 @@ isolation:
   ownershipPattern: generation-and-owner-fenced-allocation
   allocationAuthority: git-common-dir/dsh-agent-swarm-isolation/v1/state.json
   lifecycleEntry: pnpm-isolation-open-status-close-reconcile
+  openBase:
+    default: current-primary-head
+    explicit: full-commit-sha-primary-or-current-repository-authority
+    authorityVerification: tracking-ref-and-live-remote-head-before-intent
   rawLifecycleCommandsForbidden: true
   unmanagedWorkspaceForbidden: true
   layoutGateDoesNotAuthorizeAllocation: true
