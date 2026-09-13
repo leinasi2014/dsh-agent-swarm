@@ -33,7 +33,7 @@ For service ownership and persistence details, see the [capability architecture]
 | pnpm | `9.15.9`, available on `PATH` |
 | UI | Official DSH `web` Profile |
 
-The compatibility target is pinned in [package.json](package.json), [pnpm-lock.yaml](pnpm-lock.yaml), and [OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json). Other DSH versions are not covered by this baseline; compatibility updates track release candidates and final releases.
+The compatibility target is pinned in `package.json`, `pnpm-lock.yaml`, and [OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json). Other DSH versions are not covered by this baseline; compatibility updates track release candidates and final releases.
 
 Start with an official DSH installation and a Profile that can run your chosen model. The Profile must compose official Storage, Storage Domain, Session persistence, and the Subagent runtime. Use a separate `DSH_HOME` or dedicated Profile for an initial trial, and stop the target Profile before installing or updating its packages.
 
