@@ -53,6 +53,8 @@ export const skillsRequestPayloadSchema = z.object({
   goal: bounded(8_192).optional(),
   taskId: bounded(256).optional(),
   attemptId: bounded(256).optional(),
+  /** Optional adoption target: the release answer only ever names THIS skill. */
+  skillName: bounded(256).optional(),
   evidence: z.array(skillsEvidenceEntrySchema).max(64),
 }).strict()
 export type SkillsRequestPayload = z.infer<typeof skillsRequestPayloadSchema>
@@ -72,6 +74,8 @@ const skillsRequestRecordSchema = z.object({
   reason: bounded(2_048).optional(),
   result: z.object({
     availableVersion: z.object({ name: bounded(256), version: bounded(256) }).strict().optional(),
+    /** Durable attribution of one REAL adoption (exact member Session/task/attempt + pinned manifest; never re-inferable from the current assignment list later). */
+    attribution: z.object({ memberSessionId: bounded(256), taskId: bounded(256), attemptId: bounded(256).optional(), name: bounded(256), version: bounded(64), manifestHash: sha256Hex }).strict().optional(),
     evidenceStates: z.array(z.object({
       ref: bounded(2_048),
       state: z.enum(SKILLS_EVIDENCE_STATES),
@@ -178,11 +182,7 @@ export type SkillsConsumerRecord = z.infer<typeof skillsConsumerRecordSchema>
 export type SkillsConsumerAnchor = z.infer<typeof consumerAnchorSchema>
 export type SkillsConsumerBatchRef = z.infer<typeof consumerBatchRefSchema>
 
-/**
- * Durable binding of the module-owned manager Session identity: restarts
- * resume the SAME Session (same identity/tools/permissions) instead of
- * randomizing to a new one and stranding `investigating` holders.
- */
+/** Durable binding of the module-owned manager Session identity: restarts resume the SAME Session (same identity/tools/permissions) instead of randomizing to a new one and stranding `investigating` holders. */
 const skillsManagerBindingSchema = z.object({
   schemaVersion: z.literal(1),
   sessionId: bounded(256),
@@ -196,6 +196,69 @@ const storedManagerBindingSchema = skillsManagerBindingSchema as unknown as z.Zo
 const storedRequestSchema = skillsRequestRecordSchema as unknown as z.ZodType<SkillsRequestRecord>
 const storedConsumerSchema = skillsConsumerRecordSchema as unknown as z.ZodType<SkillsConsumerRecord>
 
+/**
+ * One APPROVED immutable release (S2 first slice): the manifest CAPTURES the
+ * exact body text it was approved against, so immutability is physical (the
+ * assembly serves this text, never a later source state).
+ */
+const skillsReleaseRecordSchema = z.object({
+  schemaVersion: z.literal(1),
+  scope: bounded(4_096),
+  teamId: bounded(256),
+  name: bounded(256),
+  version: bounded(64),
+  provider: bounded(256),
+  locator: bounded(1_024),
+  body: bounded(65_536),
+  contentSha256: sha256Hex,
+  resourcesSha256: sha256Hex,
+  applicability: bounded(1_024),
+  verification: bounded(1_024),
+  approvedBy: bounded(256),
+  approvedAt: timestamp,
+  manifestHash: sha256Hex,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+}).strict()
+export type SkillsReleaseRecord = z.infer<typeof skillsReleaseRecordSchema>
+type SkillsReleaseManifest = Pick<SkillsReleaseRecord, 'name' | 'version' | 'provider' | 'locator' | 'body' | 'contentSha256' | 'resourcesSha256' | 'applicability' | 'verification' | 'approvedBy'>
+
+/** One Captain authorization fact: this member session may have this exact
+ * release manifest assembled. CAS by `revision`; never inferred from the
+ * roster's static skill view. */
+const skillsAssignmentRecordSchema = z.object({
+  schemaVersion: z.literal(1),
+  scope: bounded(4_096),
+  teamId: bounded(256),
+  memberSessionId: bounded(256),
+  name: bounded(256),
+  version: bounded(64),
+  releaseManifestHash: sha256Hex,
+  assignedBy: bounded(256),
+  revision: z.number().int().min(1),
+  assignedAt: timestamp,
+  updatedAt: timestamp,
+}).strict()
+export type SkillsAssignmentRecord = z.infer<typeof skillsAssignmentRecordSchema>
+const storedReleaseSchema = skillsReleaseRecordSchema as unknown as z.ZodType<SkillsReleaseRecord>
+const storedAssignmentSchema = skillsAssignmentRecordSchema as unknown as z.ZodType<SkillsAssignmentRecord>
+
+/** SHA-256 over the canonical approval fields: the manifest identity an
+ * assignment pins and the assembly/adoption equality check consumes. */
+export function skillsReleaseManifestHash(manifest: SkillsReleaseManifest): string {
+  return createHash('sha256').update(canonicalJson(manifest), 'utf8').digest('hex')
+}
+
+/** Stable release key: the isolation tuple plus the immutable version slot. */
+function skillsReleaseKey(scope: string, teamId: string, name: string, version: string): string {
+  return JSON.stringify([scope, teamId, name, version])
+}
+
+/** Stable assignment key: one live assignment per member + skill name. */
+function skillsAssignmentKey(scope: string, teamId: string, memberSessionId: string, name: string): string {
+  return JSON.stringify([scope, teamId, memberSessionId, name])
+}
+
 /** The `agent_swarm_skills_management` domain spec opened through `ctx.storageDomain`. */
 export const skillsManagementDomainSpec = defineDomain({
   name: SKILLS_MANAGEMENT_DOMAIN_NAME,
@@ -204,6 +267,8 @@ export const skillsManagementDomainSpec = defineDomain({
     requests: domainTable<string, SkillsRequestRecord>(storedRequestSchema),
     consumers: domainTable<string, SkillsConsumerRecord>(storedConsumerSchema),
     manager: domainTable<string, SkillsManagerBinding>(storedManagerBindingSchema),
+    releases: domainTable<string, SkillsReleaseRecord>(storedReleaseSchema),
+    assignments: domainTable<string, SkillsAssignmentRecord>(storedAssignmentSchema),
   },
 })
 
@@ -251,6 +316,8 @@ export class SkillsManagementStore {
   private readonly requests: KvTable<string, SkillsRequestRecord>
   private readonly consumers: KvTable<string, SkillsConsumerRecord>
   private readonly manager: KvTable<string, SkillsManagerBinding>
+  private readonly releases: KvTable<string, SkillsReleaseRecord>
+  private readonly assignments: KvTable<string, SkillsAssignmentRecord>
   private readonly commitSequence = new CommitSequence()
   private storeClosed = false
 
@@ -262,6 +329,8 @@ export class SkillsManagementStore {
     this.requests = domain.table('requests') as KvTable<string, SkillsRequestRecord>
     this.consumers = domain.table('consumers') as KvTable<string, SkillsConsumerRecord>
     this.manager = domain.table('manager') as KvTable<string, SkillsManagerBinding>
+    this.releases = domain.table('releases') as KvTable<string, SkillsReleaseRecord>
+    this.assignments = domain.table('assignments') as KvTable<string, SkillsAssignmentRecord>
   }
 
   private assertOpen(): void {
@@ -405,6 +474,73 @@ export class SkillsManagementStore {
     })
   }
 
+  // ── S2 releases / assignments ─────────────────────────────────────────────
+
+  /** Create-first one approved release; an existing key reports the stored
+   * manifest unchanged (the caller decides replay vs loud conflict). */
+  putReleaseIfAbsent(scope: string, teamId: string, manifest: SkillsReleaseManifest & { approvedAt: number, manifestHash: string }): Promise<{ created: boolean; record: SkillsReleaseRecord }> {
+    return this.commitSequence.run(async () => {
+      this.assertOpen()
+      const key = skillsReleaseKey(scope, teamId, manifest.name, manifest.version)
+      const existing = this.readRelease(key)
+      if (existing !== undefined) return { created: false, record: structuredClone(existing) }
+      const stamp = this.now()
+      const record: SkillsReleaseRecord = { schemaVersion: 1, scope, teamId, ...manifest, createdAt: stamp, updatedAt: stamp }
+      await this.releases.put(key, structuredClone(record))
+      return { created: true, record: structuredClone(record) }
+    })
+  }
+
+  /** One approved release, or undefined when absent (synchronous memory read). */
+  getRelease(scope: string, teamId: string, name: string, version: string): SkillsReleaseRecord | undefined {
+    this.assertOpen()
+    const record = this.readRelease(skillsReleaseKey(scope, teamId, name, version))
+    return record === undefined ? undefined : structuredClone(record)
+  }
+
+  /** Bounded durable scan for the assembly provider's catalog. */
+  releaseEntries(limit = 256): SkillsReleaseRecord[] {
+    this.assertOpen()
+    const found: SkillsReleaseRecord[] = []
+    for (const [key, raw] of this.releases.entries()) {
+      found.push(structuredClone(this.assertReleaseIdentity(raw, key)))
+      if (found.length >= limit) break
+    }
+    return found
+  }
+
+  /** Create-first one assignment at revision 1. */
+  putAssignmentIfAbsent(scope: string, teamId: string, memberSessionId: string, draft: Pick<SkillsAssignmentRecord, 'name' | 'version' | 'releaseManifestHash' | 'assignedBy'>): Promise<{ created: boolean; record: SkillsAssignmentRecord }> {
+    return this.commitSequence.run(async () => {
+      this.assertOpen()
+      const key = skillsAssignmentKey(scope, teamId, memberSessionId, draft.name)
+      const existing = this.readAssignment(key)
+      if (existing !== undefined) return { created: false, record: structuredClone(existing) }
+      const stamp = this.now()
+      const record: SkillsAssignmentRecord = { schemaVersion: 1, scope, teamId, memberSessionId, ...draft, revision: 1, assignedAt: stamp, updatedAt: stamp }
+      await this.assignments.put(key, structuredClone(record))
+      return { created: true, record: structuredClone(record) }
+    })
+  }
+
+  /** One live assignment, or undefined when absent (synchronous memory read). */
+  getAssignment(scope: string, teamId: string, memberSessionId: string, name: string): SkillsAssignmentRecord | undefined {
+    this.assertOpen()
+    const record = this.readAssignment(skillsAssignmentKey(scope, teamId, memberSessionId, name))
+    return record === undefined ? undefined : structuredClone(record)
+  }
+
+  /** Bounded durable scan for the assembly provider's scoped catalog. */
+  assignmentEntries(limit = 256): SkillsAssignmentRecord[] {
+    this.assertOpen()
+    const found: SkillsAssignmentRecord[] = []
+    for (const [key, raw] of this.assignments.entries()) {
+      found.push(structuredClone(this.assertAssignmentIdentity(raw, key)))
+      if (found.length >= limit) break
+    }
+    return found
+  }
+
   /** Stop accepting operations (the domain handle itself is closed by the owner). */
   close(): void {
     this.storeClosed = true
@@ -420,6 +556,16 @@ export class SkillsManagementStore {
     return raw === undefined ? undefined : this.assertConsumerIdentity(raw, key)
   }
 
+  private readRelease(key: string): SkillsReleaseRecord | undefined {
+    const raw = this.releases.get(key)
+    return raw === undefined ? undefined : this.assertReleaseIdentity(raw, key)
+  }
+
+  private readAssignment(key: string): SkillsAssignmentRecord | undefined {
+    const raw = this.assignments.get(key)
+    return raw === undefined ? undefined : this.assertAssignmentIdentity(raw, key)
+  }
+
   /** Two-way durable identity check (key ↔ record fields), fail loud on any mismatch. */
   private assertRequestIdentity(record: SkillsRequestRecord, key: string): SkillsRequestRecord {
     if (key !== skillsRequestKey(record.scope, record.teamId, record.requestId)) {
@@ -433,5 +579,19 @@ export class SkillsManagementStore {
       throw new TeamDomainError('a skills consumer record key does not match its durable identity', 'SKILLS_TAMPERED')
     }
     return skillsConsumerRecordSchema.parse(record) as SkillsConsumerRecord
+  }
+
+  private assertReleaseIdentity(record: SkillsReleaseRecord, key: string): SkillsReleaseRecord {
+    if (key !== skillsReleaseKey(record.scope, record.teamId, record.name, record.version)) {
+      throw new TeamDomainError('a skills release record key does not match its durable identity', 'SKILLS_TAMPERED')
+    }
+    return skillsReleaseRecordSchema.parse(record) as SkillsReleaseRecord
+  }
+
+  private assertAssignmentIdentity(record: SkillsAssignmentRecord, key: string): SkillsAssignmentRecord {
+    if (key !== skillsAssignmentKey(record.scope, record.teamId, record.memberSessionId, record.name)) {
+      throw new TeamDomainError('a skills assignment record key does not match its durable identity', 'SKILLS_TAMPERED')
+    }
+    return skillsAssignmentRecordSchema.parse(record) as SkillsAssignmentRecord
   }
 }

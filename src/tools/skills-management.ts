@@ -46,6 +46,18 @@ const STATUS_SCHEMA = {
             version: { type: 'string', required: true },
           },
         },
+        attribution: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            memberSessionId: { type: 'string', required: true },
+            taskId: { type: 'string', required: true },
+            attemptId: { type: 'string' },
+            name: { type: 'string', required: true },
+            version: { type: 'string', required: true },
+            manifestHash: { type: 'string', required: true },
+          },
+        },
         evidenceStates: {
           type: 'array',
           items: {
@@ -71,6 +83,7 @@ const STATUS_SCHEMA = {
         goal: { type: 'string' },
         taskId: { type: 'string' },
         attemptId: { type: 'string' },
+        skillName: { type: 'string' },
         evidence: {
           type: 'array',
           required: true,
@@ -98,8 +111,23 @@ const intakeArgsSchema = z.object({
   goal: z.string().min(1).max(8_192).optional(),
   task_id: z.string().min(1).max(256).optional(),
   attempt_id: z.string().min(1).max(256).optional(),
+  skill_name: z.string().min(1).max(256).optional(),
   evidence_refs: z.array(z.string().min(1).max(2_048)).max(64).optional(),
 }).strict()
+
+const ASSIGN_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    scope: { type: 'string', required: true },
+    team_id: { type: 'string', required: true },
+    member_session_id: { type: 'string', required: true },
+    skill_name: { type: 'string', required: true },
+    version: { type: 'string', required: true },
+    release_manifest_hash: { type: 'string', required: true },
+    revision: { type: 'number', required: true },
+  },
+} as const
 
 /** Register the two Captain-facing Skills tools for one module instance. */
 export function registerSkillsManagementTools(ctx: Context, module: SkillsManagementModule): void {
@@ -113,6 +141,7 @@ export function registerSkillsManagementTools(ctx: Context, module: SkillsManage
       goal: { type: 'string', description: 'Optional goal context.' },
       task_id: { type: 'string', description: 'Optional Team task binding for precise evidence.' },
       attempt_id: { type: 'string', description: 'Optional Team attempt binding for precise evidence.' },
+      skill_name: { type: 'string', description: 'Optional adoption target: an approved release assigned to the proven task owner may only be answered for this exact skill name.' },
       evidence_refs: { type: 'array', items: { type: 'string' }, description: 'Optional references only (internal ids or file:<abs-path>#sha256:<hex>); files are never read here.' },
     },
     output: compactJsonOutput(RECEIPT_SCHEMA),
@@ -126,6 +155,7 @@ export function registerSkillsManagementTools(ctx: Context, module: SkillsManage
         ...(input.goal === undefined ? {} : { goal: input.goal }),
         ...(input.task_id === undefined ? {} : { taskId: input.task_id }),
         ...(input.attempt_id === undefined ? {} : { attemptId: input.attempt_id }),
+        ...(input.skill_name === undefined ? {} : { skillName: input.skill_name }),
         ...(input.evidence_refs === undefined ? {} : { evidenceRefs: input.evidence_refs }),
       }, exec as SkillsCallAuthority)
     },
@@ -151,4 +181,20 @@ export function registerSkillsManagementTools(ctx: Context, module: SkillsManage
   // Cancellation and host-side manifest revocation stay on the module
   // service face (ctx.agentSwarmSkills): they are Host/owner operations, not
   // model-facing surfaces, so no third tool widens the model boundary.
+
+  register(ctx, defineTool({
+    name: 'agent_swarm_skills_assign',
+    description: 'Assign an APPROVED immutable skill release version to ONE member of this Team (Captain-only). Requires the release to exist (approved on the Host management face) and, when the Team has an explicit allow-list, the name to be on it. The assignment durably pins the release manifest hash and is the only thing that makes the official load paths assemble that pinned body for the member. CAS: expected_revision 0 creates; a differing live revision conflicts.',
+    parameters: {
+      skill_name: { type: 'string', required: true, description: 'The approved release name.' },
+      version: { type: 'string', required: true, description: 'The exact approved version.' },
+      member: { type: 'string', required: true, description: 'Member Session id in this Team.' },
+      expected_revision: { type: 'integer', description: '0 (default) creates the assignment; the live revision + identical version/manifest replays idempotently. While an assignment stands, a version or manifest change is refused (REASSIGN_UNSUPPORTED): in-flight loads keep their pinned body.' },
+    },
+    output: compactJsonOutput(ASSIGN_SCHEMA),
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      return await module.releases.assign(args, exec as SkillsCallAuthority)
+    },
+  }), 'skills-management assign tool')
 }

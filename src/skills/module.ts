@@ -46,6 +46,7 @@ import { planConsumerAdvance, projectConsumerPage, skillsAckHash, type ConsumerS
 import { decideOutcome, resolveEvidenceFromSnapshot, type EvidenceResolution } from './evidence.js'
 import { AuthorityGuards } from './authority-guards.js'
 import { ManagerLifecycle } from './manager-lifecycle.js'
+import { ReleaseAuthority } from './release-authority.js'
 import { statusViewOf, toCanonicalPayload, type SkillsAckReceipt, type SkillsCallAuthority, type SkillsReceipt, type SkillsRequestInput, type SkillsStatusView, type SkillsSyncPage } from './contracts.js'
 import {
   skillsPayloadHash,
@@ -90,6 +91,7 @@ export class SkillsManagementModule {
   private readonly teamWrites = new Map<string, Promise<void>>()
   private readonly revocations = new Set<Promise<unknown>>()
   private managersRef: ManagerLifecycle | undefined
+  private releasesRef: ReleaseAuthority | undefined
 
   constructor(
     private readonly ctx: Context,
@@ -113,13 +115,15 @@ export class SkillsManagementModule {
     return this.managersRef
   }
 
-  /**
-   * Host-visible identity of the dedicated manager Session: the live handle,
-   * else the DURABLE binding (identity is stable across restarts — the same
-   * Session identity is resumed, never randomly replaced).
-   */
+  /** Host-visible identity of the dedicated manager Session: the live handle, else the DURABLE binding (identity is stable across restarts — the same Session identity is resumed, never randomly replaced). */
   get managerAgentId(): string {
     return this.managers.agentHandle?.agent.id ?? this.store.getManagerBinding()?.sessionId ?? ''
+  }
+
+  /** S2 release/assignment face (host approval + Captain assignment) over this module's fences and per-Team lane (docs04 §release/assign). */
+  get releases(): ReleaseAuthority {
+    this.releasesRef ??= new ReleaseAuthority({ ctx: this.ctx, store: this.store, guards: this.guards, domain: this.deps, lane: (s, t, fn) => this.forTeam(s, t, fn) })
+    return this.releasesRef
   }
 
   /**
@@ -172,6 +176,7 @@ export class SkillsManagementModule {
   close(): Promise<void> {
     this.closePromise ??= (async (): Promise<void> => {
       this.closeAdmission()
+      await this.releasesRef?.closeAssembly()
       // Official dispose starts FIRST inside beginClose(): it cancels
       // in-flight turns, so wakes waiting on whenIdle settle instead of
       // being waited on beforehand; settle() then drains late handles/wakes.
@@ -327,6 +332,7 @@ export class SkillsManagementModule {
       })
       const evidence = await this.resolveEvidence(record)
       const outcome = decideOutcome(record, evidence, activity.cursorSequence)
+      const adoption = outcome.reason === 'no_approved_version' ? await this.releases.adoptionForRequest(target.scope, target.teamId, record) : undefined
       const updated = await this.store.updateRequest(target.scope, target.teamId, requestId, current => {
         // FINAL commit boundary: the official queued update callback is the
         // last instant before persistence, so the COMPLETE authorization set —
@@ -352,7 +358,7 @@ export class SkillsManagementModule {
         if (current.revision !== expected.revision || current.payloadHash !== expected.payloadHash) {
           throw new TeamDomainError(`skill request ${requestId} advanced to revision ${current.revision}; this writer (revision ${expected.revision}) is stale`, 'SKILLS_REQUEST_STALE')
         }
-        return { ...current, ...outcome }
+        return { ...current, ...(adoption !== undefined && this.releases.stillPinned(target.scope, target.teamId, adoption) ? { state: 'available' as const, result: { ...outcome.result, ...this.releases.adoptionResult(adoption) } } : outcome) }
       })
       return { request: statusViewOf(updated), activity }
     })

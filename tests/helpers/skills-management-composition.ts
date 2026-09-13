@@ -21,6 +21,8 @@ import { join } from 'node:path'
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SkillRegistryPlugin from '@deepseek-ai/dsh-skill'
+import * as ToolSkillPlugin from '@deepseek-ai/dsh-tool-skill'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, vi } from 'vitest'
@@ -126,6 +128,24 @@ export interface SkillsModuleMountConfig {
   readonly activityPageSize?: number
 }
 
+/** One static catalog entry served through the fixture SkillProvider.
+ *  Mutable so a fixture can replace the body in place (real source drift). */
+export interface SkillsCatalogEntry {
+  name: string
+  description: string
+  content: string
+  resourceBase?: { kind: 'directory'; path: string }
+}
+
+export interface SkillsMountExtras {
+  /** Host config allow-list composed into every Team of this mount. */
+  readonly allowedSkills?: readonly string[]
+  /** Mount a real SkillRegistry + dsh-tool-skill and serve these entries
+   *  through one real official SkillProvider (entries may be mutated in
+   *  place to simulate source evolution between reads). */
+  readonly skillCatalog?: { readonly providerName: string; readonly entries: SkillsCatalogEntry[] }
+}
+
 /** Mount the real official composition plus the swarm plugin for Skills tests.
  * The official dsh-llm registry FORBIDS a second adapter for one provider
  * (DUPLICATE_ADAPTER), so each provider is registered exactly once: the
@@ -134,16 +154,50 @@ export interface SkillsModuleMountConfig {
  * zero-model assertion surface ({@link skillsAdapter}) always points at the
  * ACTUALLY REGISTERED instance for the Captain route.
  */
-export async function mountSkillsComposition(sandbox: string, extraAdapters: Record<string, LlmAdapter> = {}): Promise<RestartMounted> {
+export async function mountSkillsComposition(sandbox: string, extraAdapters: Record<string, LlmAdapter> = {}, extras: SkillsMountExtras = {}): Promise<RestartMounted> {
   const defaultAdapter = new SkillsCountingAdapter()
   const captainAdapter = extraAdapters[SKILLS_CAPTAIN_ROUTE.provider] ?? defaultAdapter
-  const mounted = await mountRestartComposition(sandbox, 0, undefined, undefined, ctx => {
+  const mounted = await mountRestartComposition(sandbox, 0, extras.allowedSkills, undefined, ctx => {
     ctx.llm.registerAdapter([SKILLS_CAPTAIN_ROUTE.provider], captainAdapter)
     for (const [provider, extra] of Object.entries(extraAdapters)) {
       if (provider === SKILLS_CAPTAIN_ROUTE.provider) continue
       ctx.llm.registerAdapter([provider], extra)
     }
   }, { captainLlmProvider: SKILLS_CAPTAIN_ROUTE.provider, captainModel: SKILLS_CAPTAIN_ROUTE.model })
+  if (extras.skillCatalog !== undefined) {
+    mounted.fibers.push(await mounted.ctx.plugin(SkillRegistryPlugin))
+    mounted.fibers.push(await mounted.ctx.plugin(ToolSkillPlugin))
+    const catalog = extras.skillCatalog
+    const invocation = { modelInvocable: true, userInvocable: true }
+    mounted.ctx.skills.registerProvider(() => ({
+      name: catalog.providerName,
+      async list() {
+        return catalog.entries.map((entry, rank) => ({
+          name: entry.name,
+          description: entry.description,
+          invocation,
+          source: 'runtime' as const,
+          provider: catalog.providerName,
+          rank,
+          locator: entry.name,
+          ...(entry.resourceBase === undefined ? {} : { resourceBase: entry.resourceBase }),
+        }))
+      },
+      async get(candidate: { name?: string }) {
+        const entry = catalog.entries.find(row => row.name === candidate.name)
+        if (entry === undefined) return undefined
+        return {
+          name: entry.name,
+          description: entry.description,
+          invocation,
+          source: 'runtime' as const,
+          provider: catalog.providerName,
+          content: entry.content,
+          ...(entry.resourceBase === undefined ? {} : { resourceBase: entry.resourceBase }),
+        }
+      },
+    }))
+  }
   ;(mounted as { skillsAdapter?: { readonly requests: GenerateOptions[] } }).skillsAdapter = captainAdapter as SkillsCountingAdapter
   return mounted
 }
@@ -244,6 +298,7 @@ export async function captainSkillsTool(
 }
 
 export { RESTART_SIGNAL, disposeRestartComposition }
+export type { RestartMounted }
 
 // ── Manager-side fixtures (full S1 batch) ───────────────────────────────────
 

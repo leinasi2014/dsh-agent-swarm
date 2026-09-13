@@ -31,6 +31,9 @@ export interface SkillsRequestInput {
   readonly goal?: string
   readonly taskId?: string
   readonly attemptId?: string
+  /** Adoption target: when set, an approved release assigned to the proven
+   * task owner may be answered for EXACTLY this skill name. */
+  readonly skillName?: string
   readonly evidenceRefs?: readonly string[]
 }
 
@@ -105,6 +108,7 @@ export function toCanonicalPayload(input: SkillsRequestInput): SkillsRequestPayl
     ...(input.goal === undefined ? {} : { goal: input.goal }),
     ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
     ...(input.attemptId === undefined ? {} : { attemptId: input.attemptId }),
+    ...(input.skillName === undefined ? {} : { skillName: input.skillName }),
     evidence: (input.evidenceRefs ?? []).map(ref => parseEvidenceRef(ref)),
   })
 }
