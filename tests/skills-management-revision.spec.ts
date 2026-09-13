@@ -273,6 +273,129 @@ describe('Skills independent revisions and official continuation', () => {
     }
   }, 30_000)
 
+  it('P2 no-benefit control: a body identical to the approved base is independently rejected and never becomes assignable', async () => {
+    const f = await setup()
+    const initial = await liveTaskMember(f.mounted, f.root, 'no-benefit-worker', [NAME], f.memberAdapter)
+    try {
+      const body = 'Approved rename protocol: journal then rename.'
+      const evidenceRef = 'evidence:skills-revision#no-behavior-change'
+      const evidenceTask = await createS2Task(f.mounted.ctx, f.root, 'no-benefit-evidence', 'Review the unchanged protocol')
+      const submitEvidence = await claimCurrentTask(f.mounted, initial.member, f.scope, f.teamId, evidenceTask, 'no-benefit-evidence', evidenceRef)
+      await submitEvidence()
+      await acceptTask(f, evidenceTask)
+      await mountSkillsModule(f.mounted.ctx, skillsManagerModuleConfig(f.scope, f.teamId), f.mounted.fibers)
+      const module = skillsModule(f.mounted.ctx)
+      await approve(f, '10.0.0', body)
+      const base = (await table(f, 'releases'))[JSON.stringify([f.scope, f.teamId, NAME, '10.0.0'])]!
+      f.managerAdapter.append(
+        skillsToolTurn('no-benefit-investigate', 'skills_management_investigate', { request_id: 'no-benefit-request' }),
+        skillsToolTurn('no-benefit-propose', PROPOSE, {
+          request_id: 'no-benefit-request', skill_name: NAME, version: '10.1.0', base_version: '10.0.0',
+          provider: PROVIDER, locator: 'fixture:no-benefit', body, applicability: 'Rename durability',
+          verification: 'The candidate body is byte-for-byte identical to its approved base; no improvement was demonstrated.',
+        }),
+        skillsTextChunks('Independent review must decide whether the unchanged proposal is useful.'),
+      )
+      const requested = await captainSkillsTool(f.mounted.ctx, f.root, 'no-benefit-request', REQUEST_TOOL, {
+        request_id: 'no-benefit-request', revision: 1, question: 'Review this proposed revision without assuming that a new version is an improvement.',
+        task_id: evidenceTask, evidence_refs: [evidenceRef],
+      })
+      expect(requested.ok, failureFields(requested)).toBe(true)
+      await module.flushWakes()
+      const captured = (await table(f, 'candidates'))[JSON.stringify([f.scope, f.teamId, NAME, '10.1.0'])]!
+      expect(captured).toMatchObject({ body, contentSha256: base.contentSha256, status: 'pending', baseVersion: '10.0.0', authorSessionId: module.managerAgentId })
+      const listed = await captainSkillsTool(f.mounted.ctx, f.root, 'no-benefit-read', CANDIDATES, { pending_only: true })
+      expect(listed.ok, failureFields(listed)).toBe(true)
+      expect(listed.value).toMatchObject({ candidates: [{ version: '10.1.0', body, content_sha256: base.contentSha256 }] })
+      // This is the independent Captain's explicit no-benefit rejection,
+      // not a claim that the scripted adapter evaluated model quality.
+      const rejected = await captainSkillsTool(f.mounted.ctx, f.root, 'no-benefit-reject', REVIEW, {
+        skill_name: NAME, version: '10.1.0', decision: 'reject',
+      })
+      expect(rejected.ok, failureFields(rejected)).toBe(true)
+      expect(rejected.value).toMatchObject({ version: '10.1.0', status: 'rejected' })
+      const candidateAfter = (await table(f, 'candidates'))[JSON.stringify([f.scope, f.teamId, NAME, '10.1.0'])]!
+      expect(candidateAfter).toMatchObject({ status: 'rejected', decidedBy: String(f.root.id) })
+      expect(candidateAfter.candidateHash).toBe(captured.candidateHash)
+      expect(await table(f, 'releases')).toEqual({ [JSON.stringify([f.scope, f.teamId, NAME, '10.0.0'])]: base })
+      const assigned = await assign(f, initial.member, '10.1.0', 0)
+      expect(assigned.ok, 'the rejected version cannot be assigned').toBe(false)
+      expect(failureFields(assigned)).toContain('RELEASE_NOT_FOUND')
+      expect(await table(f, 'assignments')).toEqual({})
+      const reopened = await captainSkillsTool(f.mounted.ctx, f.root, 'no-benefit-reopen', REVIEW, {
+        skill_name: NAME, version: '10.1.0', decision: 'approve',
+      })
+      expect(reopened.ok, 'rejection is a terminal candidate decision').toBe(false)
+      expect(failureFields(reopened)).toContain('CANDIDATE_STALE')
+      expect(await table(f, 'releases')).toEqual({ [JSON.stringify([f.scope, f.teamId, NAME, '10.0.0'])]: base })
+    } finally {
+      await initial.disposeMember()
+      await disposeRestartComposition(f.mounted)
+    }
+  }, 45_000)
+
+  it.each(['tool', 'gesture'] as const)('R4 same attempt cold (%s): an in-progress attempt retains its loaded version after official Activation release and resume', async loadMode => {
+    const f = await setup()
+    const initial = await liveTaskMember(f.mounted, f.root, 'same-attempt-cold-worker', [NAME], f.memberAdapter)
+    const finish = gate()
+    let resumed: Awaited<ReturnType<typeof wake>> | undefined
+    try {
+      await mountSkillsModule(f.mounted.ctx, skillsManagerModuleConfig(f.scope, f.teamId), f.mounted.fibers)
+      await approve(f, '1.0.0', V1)
+      await approve(f, '2.0.0', V2)
+      const taskId = await createS2Task(f.mounted.ctx, f.root, 'same-attempt-cold', 'Continue the same in-progress attempt')
+      await claimCurrentTask(f.mounted, initial.member, f.scope, f.teamId, taskId, 'same-attempt-cold', 'evidence:skills-revision#same-attempt-cold')
+      const attemptId = await currentAttempt(f, taskId)
+      const assigned = await assign(f, initial.member, '1.0.0', 0)
+      expect(assigned.ok, failureFields(assigned)).toBe(true)
+      const endTurn = [{ gate: finish.promise }, ...skillsTextChunks('This model turn ended; the task was not submitted.')]
+      if (loadMode === 'tool') f.memberAdapter.append(skillsToolTurn('same-attempt-first-load', 'skill', { name: NAME }), endTurn)
+      else f.memberAdapter.append(endTurn)
+      await gesture(initial.member, f.memberAdapter, loadMode === 'gesture' ? 'Use /alpha-fix in the current attempt.' : 'Load the assigned rename protocol.', false, initial.releaseReady)
+      if (loadMode === 'tool') await loadProof(f, initial.member, 'same-attempt-first-load', V1, '1.0.0', taskId, attemptId)
+      else {
+        const request = f.memberAdapter.requests.at(-1)!
+        await expectSkillInRequest(f.mounted, initial.member, request, { name: NAME, provider: RELEASE_PROVIDER, content: V1 })
+        const invocation = request.messages.find(message => (message.source as { kind?: string } | undefined)?.kind === 'skill-invocation')
+        const release = (await table(f, 'releases'))[JSON.stringify([f.scope, f.teamId, NAME, '1.0.0'])]!
+        expect(invocation?.source).toMatchObject({ kind: 'skill-invocation', release: {
+          name: NAME, version: '1.0.0', memberSessionId: String(initial.member.id), teamId: f.teamId,
+          taskId, attemptId, manifestHash: release.manifestHash, contentSha256: sha(V1),
+        } })
+      }
+      const moved = await assign(f, initial.member, '2.0.0', 1)
+      expect(moved.ok, failureFields(moved)).toBe(true)
+      expect(moved.value).toMatchObject({ version: '2.0.0', loaded_held: true })
+      // End only the official model turn: no submit, accept, retry or new claim.
+      finish.release()
+      await cold(f.mounted, initial.member)
+      const beforeResume = (await f.mounted.ctx.agentSwarm.listTeamAggregates(f.scope)).find(row => row.id === f.teamId)!
+      expect(beforeResume.tasks.find(row => row.id === taskId)).toMatchObject({ status: 'in_progress', currentAttemptId: attemptId })
+      const ready = gate(), resumedFinish = gate()
+      const requestStart = f.memberAdapter.requests.length
+      f.memberAdapter.append([{ gate: ready.promise }, ...skillsToolTurn('same-attempt-resumed-load', 'skill', { name: NAME })],
+        [{ gate: resumedFinish.promise }, ...skillsTextChunks('The same attempt continued.')])
+      await f.mounted.ctx.subagents.sendMessage(f.root, initial.member.id, [{ type: 'text', text: 'Continue the same in-progress task; load the protocol.' }],
+        { signal: new AbortController().signal })
+      await vi.waitFor(() => {
+        expect(f.memberAdapter.requests.length).toBeGreaterThan(requestStart)
+        expect(f.mounted.ctx.agents.get(initial.member.id)?.status).toBe('running')
+      }, { timeout: 5_000 })
+      resumed = { member: f.mounted.ctx.agents.get(initial.member.id)!, ready, finish: resumedFinish }
+      expect(resumed.member).not.toBe(initial.member)
+      expect(await currentAttempt(f, taskId), 'Activation renewal never creates a new canonical attempt').toBe(attemptId)
+      resumed.ready.release()
+      await loadProof(f, resumed.member, 'same-attempt-resumed-load', V1, '1.0.0', taskId, attemptId)
+      const afterLoad = (await f.mounted.ctx.agentSwarm.listTeamAggregates(f.scope)).find(row => row.id === f.teamId)!
+      expect(afterLoad.tasks.find(row => row.id === taskId)).toMatchObject({ status: 'in_progress', currentAttemptId: attemptId })
+    } finally {
+      finish.release()
+      resumed?.ready.release(); resumed?.finish.release()
+      await initial.disposeMember()
+      await disposeRestartComposition(f.mounted)
+    }
+  }, 45_000)
+
   it('R1: v1 is held during a re-pin; official next attempts really load v2 then rollback v1, with separate durable attribution', async () => {
     const f = await setup()
     const initial = await liveTaskMember(f.mounted, f.root, 'version-worker', [NAME], f.memberAdapter)

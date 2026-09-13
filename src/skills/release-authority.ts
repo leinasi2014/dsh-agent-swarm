@@ -39,7 +39,7 @@ import type { TeamState } from '../domain/types.js'
 import type { SkillsManagementDeps } from './module.js'
 import type { SkillsCallAuthority } from './contracts.js'
 import type { AuthorityGuards } from './authority-guards.js'
-import { assignmentView, buildReleaseProvider, releaseView, type MemberAssembly, type SkillsAssignmentView } from './release-assembly.js'
+import { assignmentView, attemptLoadFacts, buildReleaseProvider, releaseView, type MemberAssembly, type SkillsAssignmentView } from './release-assembly.js'
 
 // Assembly-side pieces live in `release-assembly.ts` (cohesive split for the
 // 600-line source gate); re-exported so existing importers keep their path.
@@ -358,6 +358,14 @@ export class ReleaseAuthority {
     }
   }
 
+  /** The member's SOLE in-progress task of this Team (attempt-boundary and
+   * attempt-freeze probes); undefined when it owns zero or multiple. */
+  private async soleInProgressTask(scope: string, teamId: string, memberSessionId: string) {
+    const team = (await this.deps.domain.listTeamAggregates(scope)).find(candidate => candidate.id === teamId)
+    const owned = (team?.tasks ?? []).filter(task => task.ownerSessionId === memberSessionId && task.status === 'in_progress')
+    return owned.length === 1 ? owned[0] : undefined
+  }
+
   /** Every current durable pin of one member whose release row still verifies
    * (the candidate snapshot at mint; also the diff target for attempt-boundary
    * advancement). */
@@ -390,10 +398,15 @@ export class ReleaseAuthority {
       return frozen === undefined || frozen.manifestHash !== release.manifestHash
     }) || current.size !== assembly.pinned.size
     if (!moved) return
+    const sole = await this.soleInProgressTask(assembly.scope, assembly.teamId, memberSessionId)
+    // An attempt-frozen assembly (R4: its body was ACTUALLY loaded in this
+    // very attempt and a cold continuation re-minted it) holds that body
+    // inside the attempt across activation changes; only a MOVED attempt
+    // advances to the current durable pin.
+    if (assembly.attemptFreeze !== undefined && sole !== undefined
+      && assembly.attemptFreeze.taskId === sole.id
+      && assembly.attemptFreeze.attemptId === (sole.currentAttemptId === undefined ? '' : String(sole.currentAttemptId))) return
     if (assembly.loads.count > 0) {
-      const team = (await this.deps.domain.listTeamAggregates(assembly.scope)).find(candidate => candidate.id === assembly.teamId)
-      const owned = (team?.tasks ?? []).filter(task => task.ownerSessionId === memberSessionId && task.status === 'in_progress')
-      const sole = owned.length === 1 ? owned[0] : undefined
       if (sole === undefined) return
       if (assembly.lastLoad !== undefined
         && assembly.lastLoad.taskId === sole.id
@@ -428,9 +441,7 @@ export class ReleaseAuthority {
     const assembly = this.memberAssemblies.get(memberSessionId)
     const release = assembly?.pinned.get(name)
     if (assembly === undefined || release === undefined) return undefined
-    const team = (await this.deps.domain.listTeamAggregates(release.scope)).find(candidate => candidate.id === release.teamId)
-    const owned = (team?.tasks ?? []).filter(task => task.ownerSessionId === memberSessionId && task.status === 'in_progress')
-    const sole = owned.length === 1 ? owned[0] : undefined
+    const sole = await this.soleInProgressTask(release.scope, release.teamId, memberSessionId)
     // Record the attempt this real load rode: the attempt-boundary probe
     // holds the body inside THIS attempt and advances at the next one.
     assembly.lastLoad = { taskId: sole?.id, attemptId: sole?.currentAttemptId === undefined ? undefined : String(sole.currentAttemptId) }
@@ -498,8 +509,25 @@ export class ReleaseAuthority {
     if (skillsCtx === undefined) {
       throw new TeamDomainError(`the Skill registry is not provided in this composition; the approved assembly for member ${memberSessionId} cannot be served`, 'SKILLS_REGISTRY_UNAVAILABLE')
     }
-    // Freeze the versions ACTUALLY EFFECTIVE for this assembly.
+    // Freeze the versions ACTUALLY EFFECTIVE for this assembly. A cold
+    // re-mint additionally honors the member's OWN canonical Session load
+    // record (R4): when the member's SOLE in-progress attempt ACTUALLY
+    // loaded an older approved body before resuming, that attempt KEEPS its
+    // body — the current durable pin must not silently swap it mid-attempt.
     const pinned = this.collectPinned(scope, teamId, memberSessionId)
+    const sole = await this.soleInProgressTask(scope, teamId, memberSessionId)
+    const soleAttemptId = sole?.currentAttemptId === undefined ? undefined : String(sole.currentAttemptId)
+    const session = this.deps.ctx.sessions.get(SessionId(memberSessionId))
+    const facts = sole === undefined || soleAttemptId === undefined || session === undefined
+      ? undefined
+      : attemptLoadFacts(session, teamId, memberSessionId, sole.id, soleAttemptId)
+    const attemptFreeze = facts === undefined || sole === undefined ? undefined : { taskId: sole.id, attemptId: soleAttemptId! }
+    if (facts !== undefined) {
+      for (const [name, fact] of facts) {
+        const release = this.deps.store.getRelease(scope, teamId, name, fact.version)
+        if (pinned.has(name) && release !== undefined && release.manifestHash === fact.manifestHash) pinned.set(name, release)
+      }
+    }
     const minted = createScope(skillsCtx, memberAgent)
     let providerDisposer: (() => void) | undefined
     let control: SkillProviderControl | undefined
@@ -519,7 +547,7 @@ export class ReleaseAuthority {
       await minted.dispose()
       throw error
     }
-    const assembly: MemberAssembly = { scope, teamId, disposeScope: minted.dispose, providerDisposer, control, loads, lastLoad: undefined, pinned }
+    const assembly: MemberAssembly = { scope, teamId, disposeScope: minted.dispose, providerDisposer, control, loads, lastLoad: undefined, attemptFreeze, pinned }
     this.memberAssemblies.set(memberSessionId, assembly)
     // Member-side lifecycle: when this Agent's own effect scope unwinds, the
     // assembly converges with it (module-side close stays idempotent).

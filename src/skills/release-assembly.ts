@@ -34,6 +34,11 @@ export interface MemberAssembly {
   loads: { count: number }
   /** Task/attempt the most recent real load rode (attempt-boundary probe). */
   lastLoad: { taskId: string | undefined; attemptId: string | undefined } | undefined
+  /** Set when a cold re-mint recovered from the member's canonical Session
+   * that THIS very attempt already loaded a body: the frozen version is held
+   * across the cold continuation (the same attempt never changes bodies);
+   * only a moved attempt advances to the current durable pin. */
+  attemptFreeze: { taskId: string; attemptId: string } | undefined
   /** The immutable versions ACTUALLY EFFECTIVE in this assembly (name → the
    * verified release record captured at mint time). Body AND load provenance
    * both read this snapshot: a Captain re-pin can never hot-swap a held body
@@ -117,4 +122,104 @@ export function assignmentView(record: { scope: string; teamId: string; memberSe
     revision: record.revision,
     ...(loadedHeld ? { loaded_held: true } : {}),
   }
+}
+
+/** One canonical load fact: the provenance the governed surface durably wrote
+ * into the member's OWN Session at the exact real load — either the
+ * `skill-invocation` user-message source or the tool/result
+ * `<release_provenance>` block. */
+export interface CanonicalLoadFact {
+  readonly name: string
+  readonly version: string
+  readonly manifestHash: string
+  readonly taskId: string
+  readonly attemptId: string
+}
+
+const PROVENANCE_BLOCK = /<release_provenance>(\{[\s\S]*?\})<\/release_provenance>/g
+
+function loadFactFrom(value: unknown, teamId: string, memberSessionId: string, taskId: string, attemptId: string): CanonicalLoadFact | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const record = value as Record<string, unknown>
+  // Replaying an old log must never outlive authorization: the fact must name
+  // THIS member Session and this exact Team/task/attempt. Pin/membership/
+  // allow-list re-verification stays with the caller (only pinned names adopt
+  // the frozen version).
+  if (record.teamId !== teamId || record.memberSessionId !== memberSessionId) return undefined
+  if (record.taskId !== taskId || record.attemptId !== attemptId) return undefined
+  const { name, version, manifestHash } = record
+  if (typeof name !== 'string' || typeof version !== 'string' || typeof manifestHash !== 'string') return undefined
+  return { name, version, manifestHash, taskId, attemptId }
+}
+
+/** Provenance text of a SUCCESSFUL `tool-result` block lives in the block's
+ * own nested `content` text parts (mirroring the durable request shape the
+ * spec's loadProof reads). */
+function textOf(content: unknown): string[] {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((block: unknown) => {
+    const part = block as { type?: unknown; text?: unknown; content?: unknown }
+    if (part?.type === 'text' && typeof part.text === 'string') return [part.text]
+    return textOf(part?.content)
+  })
+}
+
+interface CanonicalEvent {
+  readonly type?: unknown
+  readonly data?: unknown
+}
+
+/** Scan the RESUMED member Session (official `snapshotEvents()`) for bodies
+ * ACTUALLY loaded inside one exact attempt. Official event shapes differ per
+ * type: `tool/call` carries `data.name/callId/arguments` (no message);
+ * `user/message` IS `data` (gesture provenance at `data.source.release`);
+ * `tool/result` carries `data.message` (role `user`, `source.kind='tool'`).
+ * A tool load counts ONLY when paired: the result's `source.callId` and each
+ * successful `tool-result` block's `toolCallId` must match a real `skill`
+ * `tool/call` — never another tool returning look-alike XML. Newest fact per
+ * name wins; undefined when the log records none for this attempt (caller
+ * then keeps durable pins). Reads only; grants no other authority. */
+export function attemptLoadFacts(session: { snapshotEvents: () => readonly unknown[] }, teamId: string, memberSessionId: string, taskId: string, attemptId: string): Map<string, CanonicalLoadFact> | undefined {
+  const facts = new Map<string, CanonicalLoadFact>()
+  // Skill calls awaiting their result. Parallel tool calls under one turn
+  // mean the durable callId (not the step index) is the precise pairing key:
+  // a result is credited ONLY to a prior `tool/call` of the governed `skill`
+  // tool with that exact id, never to another tool returning look-alike XML.
+  const openSkillCalls = new Set<string>()
+  for (const raw of session.snapshotEvents()) {
+    const event = raw as CanonicalEvent
+    if (event.type === 'tool/call') {
+      const call = event.data as { name?: unknown; callId?: unknown } | undefined
+      if (call?.name === 'skill' && typeof call.callId === 'string') openSkillCalls.add(call.callId)
+      continue
+    }
+    if (event.type === 'user/message') {
+      const gesture = event.data as { source?: { kind?: unknown; release?: unknown } } | undefined
+      if (gesture?.source?.kind === 'skill-invocation') {
+        const fact = loadFactFrom(gesture.source.release, teamId, memberSessionId, taskId, attemptId)
+        if (fact !== undefined) facts.set(fact.name, fact)
+      }
+      continue
+    }
+    if (event.type !== 'tool/result') continue
+    const message = (event.data as { message?: unknown } | undefined)?.message as
+      { role?: unknown; source?: { kind?: unknown; callId?: unknown }; content?: unknown } | undefined
+    if (message === undefined || message.role !== 'user') continue
+    const source = message.source
+    if (source?.kind !== 'tool' || typeof source.callId !== 'string' || !openSkillCalls.has(source.callId)) continue
+    openSkillCalls.delete(source.callId)
+    for (const block of Array.isArray(message.content) ? message.content : []) {
+      const part = block as { type?: unknown; toolCallId?: unknown; isError?: unknown; content?: unknown }
+      if (part?.type !== 'tool-result' || part.toolCallId !== source.callId || part.isError !== false) continue
+      for (const text of textOf(part.content)) {
+        for (const match of text.matchAll(PROVENANCE_BLOCK)) {
+          try {
+            const fact = loadFactFrom(JSON.parse(match[1]!), teamId, memberSessionId, taskId, attemptId)
+            if (fact !== undefined) facts.set(fact.name, fact)
+          } catch { /* a malformed provenance block is not a load fact */ }
+        }
+      }
+    }
+  }
+  return facts.size > 0 ? facts : undefined
 }
