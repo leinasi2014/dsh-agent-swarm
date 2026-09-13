@@ -131,8 +131,9 @@ export function installMemberChatComposer(ctx: Context, sessions: ISessions, cli
           inject: sessionId => {
             const scoped = sessions.scope(sessionId)
             if (scoped === undefined) throw new Error('Member Chat Session scope is unavailable')
-            const conversation = scoped.conversation as ConversationController
-            return { input: conversation.input.for(scoped), attachments: conversation, client, cancel: () => scoped.conversation.cancel() }
+            const conversation = scoped.get('conversation') as ConversationController | undefined
+            if (conversation === undefined) throw new Error('Member Chat Conversation service is unavailable')
+            return { input: conversation.input.for(scoped), attachments: conversation, client, cancel: () => conversation.cancel() }
           },
         }, MemberChatComposer)
       }).catch(() => { /* An unavailable or unverified target leaves the official composer intact. */ })

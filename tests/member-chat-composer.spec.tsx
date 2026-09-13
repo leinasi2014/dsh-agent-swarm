@@ -195,26 +195,34 @@ describe('official composer chain ownership and Host target read', () => {
     const dictionaries: Record<string, Record<string, string>> = { 'swarm.team-dashboard': zh }
     const locale = { ...createSnapshotStore({ revision: 0 }), bind: (namespace: string) => (key: string) => dictionaries[namespace]?.[key] ?? key,
       register: (namespace: string, dictionary: { zh: Record<string, string> }) => { dictionaries[namespace] = dictionary.zh; return () => { delete dictionaries[namespace] } } }
-    const sessions = { list: createSnapshotStore({ current: selected.sessionId }), scope: () => ({ conversation: {
-      ...f.attachments, input: { for: () => f.input }, cancel: f.props.cancel,
-    } }) }
+    let memberScope!: Cordis.Context
+    const inputFor = vi.fn((scope: Cordis.Context) => { expect(scope).toBe(memberScope); return f.input })
+    const sessions = { list: createSnapshotStore({ current: selected.sessionId }), scope: () => memberScope }
     function ConversationSeat({ renderSlotChain }: { renderSlotChain: (name: 'conversation.composer', props: ComposerChainProps, options: { fallback: ReactNode; overlay: boolean }) => ReactNode }) {
       const current = useSyncExternalStore(ownerState.subscribe, ownerState.getSnapshot)
       return <><div data-official-history="">Existing member history</div>{renderSlotChain('conversation.composer', current, { fallback: <div data-official-input="" />, overlay: true })}</>
     }
-    const fiber = await ctx.plugin((scope: Cordis.Context) => {
-      renderer.apply(scope)
-      scope.reflect.provide('sessions', sessions)
-      scope.reflect.provide('locale', locale)
-      scope.slots.installLocale(locale)
-      const binding = { key: target.sessionId, ctx: scope, hooks: {}, keyedHooks: {}, props: { sessionId: target.sessionId } }
-      scope.slots.installScope('session', { current: createSnapshotStore(binding), resolve: id => id === target.sessionId ? binding : undefined, renderArea: () => null })
-      scope.slots.register({ name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } }, ConversationSeat as never)
-      subagent.apply(scope)
-      installMemberChatComposer(scope, sessions as never, { target: () => attestation.promise, prompt: f.prompt } as unknown as MemberChatClient)
-    })
+    const fibers: Cordis.Fiber[] = []
     const root = createRoot(document.body.appendChild(document.createElement('div')))
     try {
+      fibers.push(await ctx.plugin((scope: Cordis.Context) => {
+        scope.reflect.provide('conversation', { ...f.attachments, input: { for: inputFor }, cancel: f.props.cancel })
+      }))
+      fibers.push(await ctx.plugin((scope: Cordis.Context) => { memberScope = scope }))
+      // Session scopes belong to a different fiber, with no conversation injection.
+      expect(() => memberScope.conversation).toThrow('cannot get property "conversation" without inject')
+      expect(memberScope.get('conversation')).toBeDefined()
+      fibers.push(await ctx.plugin((scope: Cordis.Context) => {
+        renderer.apply(scope)
+        scope.reflect.provide('sessions', sessions)
+        scope.reflect.provide('locale', locale)
+        scope.slots.installLocale(locale)
+        const binding = { key: target.sessionId, ctx: scope, hooks: {}, keyedHooks: {}, props: { sessionId: target.sessionId } }
+        scope.slots.installScope('session', { current: createSnapshotStore(binding), resolve: id => id === target.sessionId ? binding : undefined, renderArea: () => null })
+        scope.slots.register({ name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } }, ConversationSeat as never)
+        subagent.apply(scope)
+        installMemberChatComposer(scope, sessions as never, { target: () => attestation.promise, prompt: f.prompt } as unknown as MemberChatClient)
+      }))
       await act(async () => { root.render(ctx.slots.renderSlot('root', {})) })
       expect(document.querySelector('[role=status]')?.textContent).toContain(dictionaries.subagent!['readonly.body'])
       expect(document.querySelector('[data-swarm-member-composer]')).toBeNull()
@@ -224,11 +232,20 @@ describe('official composer chain ownership and Host target read', () => {
       expect(document.querySelector('[role=status]')).toBeNull()
       expect(document.querySelector('[data-official-history]')?.textContent).toBe('Existing member history')
       expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('exact member draft')
+      expect(inputFor).toHaveBeenCalledWith(memberScope)
       expect(selected.session!.subagent!.parentAvailable).toBe(false)
+      await send()
+      expect(f.prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: target.sessionId,
+        content: [{ type: 'text', text: 'exact member draft' }] }), expect.any(AbortSignal))
+      expect(f.state.getSnapshot().draft).toBe('')
+      await act(async () => ownerState.set({ ...selected, session: { ...selected.session!, running: true } }))
+      await act(async () => Array.from(document.querySelectorAll('button')).find(button => button.textContent === zh['memberChat.stop'])!.click())
+      expect(f.props.cancel).toHaveBeenCalledTimes(1)
+      expect(document.querySelector('[role=alert]')).toBeNull()
       await act(async () => ownerState.set({ ...selected, pendingInteraction: {} as never }))
       expect(document.querySelector('[data-swarm-member-composer]')).toBeNull()
-      expect(f.prompt).not.toHaveBeenCalled()
-    } finally { await act(async () => root.unmount()); await fiber.dispose() }
+      expect(f.prompt).toHaveBeenCalledTimes(1)
+    } finally { await act(async () => root.unmount()); for (const fiber of fibers.toReversed()) await fiber.dispose() }
   })
 
   it('accepts only the attested open continuable member and yields to official pending interactions', () => {
