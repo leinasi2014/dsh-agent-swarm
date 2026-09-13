@@ -19,6 +19,8 @@ for (const [label, relativePath] of [
   ['exports[.].types', pkg.exports?.['.']?.types],
   ['exports[./client].default', pkg.exports?.['./client']?.default],
   ['exports[./client].types', pkg.exports?.['./client']?.types],
+  ['exports[./skills].default', pkg.exports?.['./skills']?.default],
+  ['exports[./skills].types', pkg.exports?.['./skills']?.types],
   ['bundle patch', pkg.dsh?.bundle?.patch],
 ]) {
   if (typeof relativePath !== 'string') {

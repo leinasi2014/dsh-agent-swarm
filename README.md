@@ -83,16 +83,55 @@ Configure defaults under **Settings -> Plugins -> Agent Swarm**. Captains can ov
 
 ## Release boundaries and known limitations
 
-- **Member private chat:** v0.1.1 could leave the member chat read-only when its Captain was unavailable. The continuation fix in this checkout uses the same official member Session and restores managed parents only for the prompt operation; see [issue #286](https://github.com/leinasi2014/dsh-agent-swarm/issues/286). Text and image messages are supported; ordinary file attachments are currently refused with the draft retained.
-- **Later development is separate from the download.** New selective-collaboration quotas and the independent Skills request, assignment, revision, and automatic self-maintenance workflows remain under development. Code on `main` may be newer than the installed package; check its [release notes](https://github.com/leinasi2014/dsh-agent-swarm/releases).
+- **Member private chat:** v0.1.2 restored continued conversation in the same official member Session, including when its Captain is unavailable; see [issue #286](https://github.com/leinasi2014/dsh-agent-swarm/issues/286). The interface accepts text and image messages; real-model acceptance currently covers text. Ordinary file attachments are refused with the draft retained.
+- **v0.1.3 adds the optional Skills manager described below.** It is not enabled by the default Bundle and is absent from the v0.1.2 tarball. New selective-collaboration quotas remain under development. Check the installed package's [release notes](https://github.com/leinasi2014/dsh-agent-swarm/releases) for its accepted scope.
 - **Local execution is the delivered target.** Remote members, cross-process distributed coordination, a Canvas consumer, and automatic Skill evolution remain outside the delivered scope.
 - **Acceptance is bounded.** Automatic upgrades, data migration, long-duration stability, and a release-wide recovery and accessibility matrix are not established by the current release. Engineering checks and real Profile acceptance are separate evidence.
 
 The [implementation roadmap](docs/07-implementation-roadmap.md) defines the remaining capability boundaries and acceptance criteria (Chinese).
 
-### Source builds after v0.1.1
+### Private-note recall
 
-This checkout also provides member-note maintenance and optional recall for a member's current task. Recall defaults to `disabled`; the Profile owner can set `privateMemoryRecall: active-task` in the Agent Swarm Host configuration. Members and Captains cannot enable it through prompts or tool approvals. See the [private-memory contract](docs/04-core-protocol.md) (Chinese). These additions are not included in the v0.1.1 tarball.
+Since v0.1.2, member-note maintenance and optional recall are available for a member's current task. Recall defaults to `disabled`; the Profile owner can set `privateMemoryRecall: active-task` in the Agent Swarm Host configuration. Members and Captains cannot enable it through prompts or tool approvals. See the [private-memory contract](docs/04-core-protocol.md) (Chinese). These additions are not included in the v0.1.1 tarball.
+
+### Optional Skills manager (v0.1.3)
+
+The separate `dsh-agent-swarm/skills` Host plugin manages skill requests, immutable candidates, Captain review, and approved version assignments. The default Bundle does not enable it. The Profile must already supply the main Swarm runtime, official agent and storage services, the Skills registry, and the selected model provider.
+
+Save an additional Profile patch as `swarm-skills.yml`, replacing the placeholders with your Host's exact workspace scope, Team ID, and configured model route:
+
+```yaml
+- insert:
+    - id: agent-swarm-skills
+      name: dsh-agent-swarm/skills
+      config:
+        manager:
+          provider: REPLACE_WITH_PROVIDER_ID
+          model: REPLACE_WITH_MODEL_ID
+        management:
+          - scope: REPLACE_WITH_EXACT_HOST_WORKSPACE_SCOPE
+            teamId: REPLACE_WITH_TEAM_ID
+```
+
+The scope is the canonical Session workspace, not an attempt's execution directory. An empty `management` list authorizes no teams. Supply both manager route fields; one missing field is invalid, and omitting both returns `unavailable`. The manager does not inherit the Captain's model or general tool permissions.
+
+Inspect the composed configuration, then launch with the same overlay:
+
+```bash
+dsh --profile web --patch ./swarm-skills.yml --dump-config
+dsh --profile web --patch ./swarm-skills.yml --host 127.0.0.1 --port 3180 --no-open
+```
+
+For an authorized, active Team:
+
+1. The Captain submits `agent_swarm_skills_request` and reads `agent_swarm_skills_status`; status reads do not call a model.
+2. The manager uses its scoped `skills_management_investigate` tool for investigation and batch acknowledgement, and `agent_swarm_skills_propose` to capture a candidate. Proposing does not publish it.
+3. The Captain reads the captured body with `agent_swarm_skills_candidates`, then calls `agent_swarm_skills_review` with `decision: approve` or `reject`. The author cannot approve its own candidate.
+4. The Captain uses `agent_swarm_skills_assign` with the exact `skill_name`, `version`, member Session ID in `member`, and `expected_revision`. Use `0` for a new assignment or the current revision to select another approved version, including rollback.
+
+An already loaded skill stays fixed for the current task attempt, including after the member's Agent is released and resumed. A changed assignment takes effect at the next valid task attempt. Assignment preserves the Team allow-list, and a stored assignment alone does not prove that the member loaded or benefited from it.
+
+This slice supports captured skill text with an empty resource tree. Complete resource bundles, outcome-based rejection of proposals that provide no benefit, demonstrated improvement on real work, and complete observation and reuse across teams remain unfinished. See the [Skills contract](docs/04-core-protocol.md) and [roadmap](docs/07-implementation-roadmap.md) (Chinese).
 
 <details>
 <summary>Earlier Team panel screenshot</summary>
