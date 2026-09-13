@@ -14,6 +14,7 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import { z } from 'zod'
 import { TeamDomainError } from '../domain/error.js'
 import type { SkillsManagementStore, SkillsRequestRecord } from '../storage/skills-management.js'
@@ -116,7 +117,10 @@ export class ManagerLifecycle {
         }
       }
       if (this.deps.isAdmissionClosed() || generation !== this.deps.generation()) {
-        void handle.dispose()
+        // CLOSE COMPLETION includes releasing this module-owned late handle:
+        // await its dispose BEFORE refusing, so a racing close never returns
+        // with the handle still resident. Business Agents are untouched.
+        await handle.dispose()
         throw new TeamDomainError('the skills-management module admission closed while the manager was opening', 'SKILLS_ADMISSION_CLOSED')
       }
       this.handle = handle
@@ -229,8 +233,11 @@ export class ManagerLifecycle {
   }
 
   private isMissingSession(error: unknown): boolean {
-    const text = `${error instanceof Error ? error.name : ''} ${error instanceof Error ? error.message : String(error)}`
-    return /persistence|not\s*found/i.test(text)
+    // OFFICIAL precision (agent-loop index.ts:496 precedent): ONLY the public
+    // not-found class means "bound identity was never persisted". Corruption
+    // and every other read/restore failure propagate explicitly — they must
+    // NEVER be folded into the same-id create fallback.
+    return error instanceof SessionPersistenceNotFoundError
   }
 
   /** The ONE private manager-scoped tool: bounded investigation AND explicit batch ack. */

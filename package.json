@@ -15,6 +15,10 @@
       "types": "./lib/types/client/plugin-entry.d.ts",
       "default": "./lib/client.js"
     },
+    "./skills": {
+      "types": "./lib/types/skills/plugin.d.ts",
+      "default": "./lib/skills.mjs"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

@@ -11,6 +11,8 @@
  * medium after remount — never by forcing a closed store to answer.
  */
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type { AgentSetup } from '@deepseek-ai/dsh-agent'
+import { SessionPersistenceCorruptionError, SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import { describe, expect, it, vi } from 'vitest'
 import {
   captainSkillsTool,
@@ -38,6 +40,81 @@ import {
 
 const tracker = skillsSandboxTracker('dsh-skills-session-')
 const freshSandbox = tracker.freshSandbox
+
+/** One settled+persisted manager Session, prepared by a full first life. */
+async function persistSettledManagerSession(sandbox: string, tag: string) {
+  const adapter = new SkillsManagerScriptAdapter()
+  const mounted = await mountSkillsComposition(sandbox, { [SKILLS_MANAGER_ROUTE.provider]: adapter })
+  try {
+    const { root, teamId } = await createSkillsTeam(mounted, sandbox)
+    const scope = mounted.ctx.agentSwarm.scopeOf(root)
+    await mountSkillsModule(mounted.ctx, skillsManagerModuleConfig(scope, teamId), mounted.fibers)
+    const module = skillsModule(mounted.ctx)
+    const taskId = await createSkillsTask(mounted.ctx, root, `${tag}-task`, 'Work fact persisted before the reopen')
+    adapter.append(
+      skillsToolTurn(`inv-${tag}`, SKILLS_INVESTIGATE_TOOL, { request_id: `${tag}-settled` }),
+      skillsTextChunks('Settled on the durable manager Session.'),
+    )
+    const settled = await captainSkillsTool(mounted.ctx, root, `${tag}-intake`, REQUEST_TOOL, {
+      request_id: `${tag}-settled`, revision: 1, question: 'Persist a settled manager Session log.', task_id: taskId,
+    })
+    expect(settled.ok).toBe(true)
+    await module.flushWakes()
+    const managerId = module.managerAgentId
+    expect(managerId, 'the settled manager Session must be durable before the reopen').not.toBe('')
+    return { teamId, scope, managerId }
+  } finally {
+    await disposeRestartComposition(mounted)
+  }
+}
+
+/** Reopen the composition over existing roots (or create a fresh Team). */
+async function openModuleOnTeam(
+  sandbox: string,
+  team: { scope: string; teamId: string } | undefined,
+  afterMount: (mounted: Awaited<ReturnType<typeof mountSkillsComposition>>) => void = () => {},
+) {
+  const adapter = new SkillsManagerScriptAdapter()
+  const mounted = await mountSkillsComposition(sandbox, { [SKILLS_MANAGER_ROUTE.provider]: adapter })
+  try {
+    let target = team
+    let root: Awaited<ReturnType<typeof createSkillsTeam>>['root']
+    if (target === undefined) {
+      const created = await createSkillsTeam(mounted, sandbox)
+      root = created.root
+      target = { scope: mounted.ctx.agentSwarm.scopeOf(created.root), teamId: created.teamId }
+    } else {
+      root = (await createSkillsTeam(mounted, sandbox, true)).root
+    }
+    afterMount(mounted)
+    await mountSkillsModule(mounted.ctx, skillsManagerModuleConfig(target.scope, target.teamId), mounted.fibers)
+    return { mounted, module: skillsModule(mounted.ctx), adapter, root, ...target }
+  } catch (error) {
+    await disposeRestartComposition(mounted)
+    throw error
+  }
+}
+
+/** The window primitives: entered/gate plus the two-argument setup wrapper
+ *  that pauses INSIDE the real setup — after the production setup body ran
+ *  for real, before the official factory executes its commit. */
+function makeWindowHarness() {
+  let entered!: () => void
+  const enteredP = new Promise<void>(resolve => { entered = resolve })
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const state = { identity: '', handleReturned: false }
+  const wrapSetup = (setup: AgentSetup | undefined): AgentSetup => async (agentCtx, agent) => {
+    if (setup === undefined) throw new Error('the manager open must carry the production setup')
+    const prepared = await setup(agentCtx, agent)
+    state.handleReturned = false // still pre-commit: nothing can be published yet
+    entered()
+    await gate
+    return prepared
+  }
+  const releaseAll = () => release()
+  return { enteredP, entered, release, releaseAll, state, wrapSetup }
+}
 
 describe('S1 manager session: durable identity across uninstall, recovery, and stalled close', () => {
   it('survives a real plugin-fiber uninstall: drains, releases ONLY the module handle, and the durable receipt reads back after a full remount on the SAME identity', async () => {
@@ -225,4 +302,260 @@ describe('S1 manager session: durable identity across uninstall, recovery, and s
       await disposeRestartComposition(mounted)
     }
   }, 60_000)
+
+  it('true missing: a setup-cancelled first create keeps the binding durable with NO persisted Session; the cold reopen ORGANICALLY hits the official not-found and recreates under the same id', async () => {
+    const sandbox = await freshSandbox()
+    const firstAdapter = new SkillsManagerScriptAdapter()
+    const mounted = await mountSkillsComposition(sandbox, { [SKILLS_MANAGER_ROUTE.provider]: firstAdapter })
+    let managerId = ''
+    let teamId = ''
+    let scope = ''
+    try {
+      const team = await createSkillsTeam(mounted, sandbox)
+      teamId = team.teamId
+      scope = mounted.ctx.agentSwarm.scopeOf(team.root)
+      await mountSkillsModule(mounted.ctx, skillsManagerModuleConfig(scope, teamId), mounted.fibers)
+      const module = skillsModule(mounted.ctx)
+      const originalCreate = mounted.ctx.agents.create.bind(mounted.ctx.agents)
+      vi.spyOn(mounted.ctx.agents, 'create').mockImplementation(async options => {
+        managerId = String(options.sessionId)
+        const productionSetup = options.setup
+        if (productionSetup === undefined) throw new Error('the manager create must carry the production setup')
+        // The REAL official create runs; its setup cancels only AFTER the
+        // production setup body executed — the identity never reaches its
+        // commit, so the Session is never persisted while the binding is.
+        return await originalCreate({
+          ...options,
+          setup: async (agentCtx, agent) => {
+            await productionSetup(agentCtx, agent)
+            throw new Error('injected setup cancellation before the manager commit')
+          },
+        })
+      })
+      try {
+        await expect(module.ensureManager()).rejects.toThrow()
+        expect(module.managerAgentId, 'the binding is durable even though the Session never existed').toBe(managerId)
+        expect(mounted.ctx.agents.get(SessionId(managerId)), 'a cancelled create leaves no resident manager').toBeUndefined()
+        await expect(mounted.ctx.sessionPersistence.open(SessionId(managerId), 'read'))
+          .rejects.toBeInstanceOf(SessionPersistenceNotFoundError)
+        expect(firstAdapter.requests, 'a cancelled create never reached the manager model').toHaveLength(0)
+      } finally {
+        vi.restoreAllMocks()
+      }
+    } finally {
+      await disposeRestartComposition(mounted)
+    }
+
+    // COLD REOPEN with ZERO mocks: the official resume meets the genuinely
+    // absent Session and raises its OWN not-found class; only that class may
+    // drive the same-id REAL create fallback.
+    const opened = await openModuleOnTeam(sandbox, { scope, teamId })
+    try {
+      const taskId = await createSkillsTask(opened.mounted.ctx, opened.root, 'b1-missing-kick-task', 'Request that re-wakes the manager on reopen')
+      const intake = await captainSkillsTool(opened.mounted.ctx, opened.root, 'b1-missing-kick', REQUEST_TOOL, {
+        request_id: 'b1-missing-kick', revision: 1, question: 'Reopen drives the organic not-found recovery.', task_id: taskId,
+      })
+      expect(intake.ok).toBe(true)
+      await opened.module.flushWakes()
+      expect(opened.module.managerAgentId, 'the fallback recreates under the SAME durable identity').toBe(managerId)
+      expect(opened.mounted.ctx.agents.get(SessionId(managerId)), 'the recreated manager is officially live').toBeDefined()
+      expect(opened.adapter.requests.length, 'the recreated manager really ran its model turn').toBeGreaterThanOrEqual(1)
+      const row = await readRow(sandbox, scope, teamId, 'b1-missing-kick')
+      expect(row!.state, 'an organic not-found recovery must not mark the request failed').not.toBe('failed')
+    } finally {
+      await disposeRestartComposition(opened.mounted)
+    }
+  }, 90_000)
+
+  it.each([
+    { kind: 'corruption' },
+    { kind: 'read-failure' },
+  ] as const)('resume failure $kind propagates explicitly: no same-id create fallback, no resurrection, named in the durable failure', async ({ kind }) => {
+    const sandbox = await freshSandbox()
+    const { teamId, scope, managerId } = await persistSettledManagerSession(sandbox, `b1-${kind}`)
+    const injected = kind === 'corruption'
+      ? new SessionPersistenceCorruptionError('injected validation failure for the QA contrast', { cause: new Error('bit flip') })
+      : new Error('injected disk read failure for the QA contrast')
+    const resumeSessionIds: string[] = []
+    let createCalls = 0
+    // REOPEN over the same roots. The official resume is the exact public
+    // seam where each durable condition surfaces with its own class; the
+    // module may only treat SessionPersistenceNotFoundError as "never
+    // persisted" (agent-loop index.ts:496 precedent) — corruption or a plain
+    // read failure must propagate explicitly, never trigger the fallback.
+    const opened = await openModuleOnTeam(sandbox, { scope, teamId }, mounted => {
+      const originalCreate = mounted.ctx.agents.create.bind(mounted.ctx.agents)
+      vi.spyOn(mounted.ctx.agents, 'resume').mockImplementation(async options => {
+        resumeSessionIds.push(String(options.resumeSessionId))
+        throw injected
+      })
+      vi.spyOn(mounted.ctx.agents, 'create').mockImplementation(async options => {
+        createCalls += 1
+        return await originalCreate(options)
+      })
+    })
+    try {
+      const taskId = await createSkillsTask(opened.mounted.ctx, opened.root, `b1-${kind}-kick-task`, 'Request that re-wakes the manager on reopen')
+      const intake = await captainSkillsTool(opened.mounted.ctx, opened.root, `b1-${kind}-kick`, REQUEST_TOOL, {
+        request_id: `b1-${kind}-kick`, revision: 1, question: 'Reopen drives the resume classification.', task_id: taskId,
+      })
+      expect(intake.ok).toBe(true)
+      await opened.module.flushWakes()
+
+      expect(resumeSessionIds, 'reopen drives the official resume first, on the bound identity').toContain(managerId)
+      expect(createCalls, `${kind} must NEVER fold into the same-id create fallback`).toBe(0)
+      expect(opened.mounted.ctx.agents.get(SessionId(managerId)), `${kind} does not resurrect a manager`).toBeUndefined()
+      const row = await readRow(sandbox, scope, teamId, `b1-${kind}-kick`)
+      expect(row!.state, `${kind} propagates explicitly as a wake failure`).toBe('failed')
+      expect(String(row!.reason), 'the durable failure names the exact injected condition').toContain(kind === 'corruption'
+        ? 'SessionPersistenceCorruptionError'
+        : 'injected disk read failure')
+    } finally {
+      vi.restoreAllMocks()
+      await disposeRestartComposition(opened.mounted)
+    }
+  }, 90_000)
+
+  it.each([
+    { entry: 'create' },
+    { entry: 'resume' },
+  ] as const)('window A [$entry open]: close lands INSIDE the real setup after its body ran, before the commit — the open rolls back, nothing publishes, no model turn', async ({ entry }) => {
+    const sandbox = await freshSandbox()
+    const tag = `win-a-${entry}`
+    let team: { scope: string; teamId: string } | undefined
+    if (entry === 'resume') {
+      const settled = await persistSettledManagerSession(sandbox, tag)
+      team = { scope: settled.scope, teamId: settled.teamId }
+    }
+    const h = makeWindowHarness()
+    const opened = await openModuleOnTeam(sandbox, team, mounted => {
+      if (entry === 'create') {
+        const originalCreate = mounted.ctx.agents.create.bind(mounted.ctx.agents)
+        vi.spyOn(mounted.ctx.agents, 'create').mockImplementation(async options => {
+          h.state.identity = String(options.sessionId)
+          const handle = await originalCreate({ ...options, setup: h.wrapSetup(options.setup) })
+          h.state.handleReturned = true
+          return handle
+        })
+      } else {
+        const originalResume = mounted.ctx.agents.resume.bind(mounted.ctx.agents)
+        vi.spyOn(mounted.ctx.agents, 'resume').mockImplementation(async options => {
+          h.state.identity = String(options.resumeSessionId)
+          const handle = await originalResume({ ...options, setup: h.wrapSetup(options.setup) })
+          h.state.handleReturned = true
+          return handle
+        })
+      }
+    })
+    const { mounted, module, adapter } = opened
+    try {
+      const opening = module.ensureManager()
+      await h.enteredP
+      const identity = h.state.identity // captured BEFORE close — a closed store getter is never consulted later
+      const closing = module.close()
+      h.release()
+      const failure = await opening.then(() => undefined, (error: unknown) => error as Error & { code?: string })
+      await closing
+      expect(failure, 'an open whose setup meets the closed admission must fail closed').toBeDefined()
+      // Fail-closed either way: the official signal cancels the call, or the
+      // setup-commit boundary itself refuses the closed admission/generation.
+      expect([failure!.code ?? '', failure!.name, failure!.message].join(' '))
+        .toMatch(/SKILLS_ADMISSION_CLOSED|AbortError|abort/i)
+      expect(h.state.handleReturned, `window A (${entry}): the official open never returned a handle`).toBe(false)
+      expect(mounted.ctx.agents.get(SessionId(identity)), 'the rolled-back open leaves no resident manager').toBeUndefined()
+      await expect(module.ensureManager(), 'the closed module refuses a reopen through the public face').resolves.toBeUndefined()
+      expect(adapter.requests, 'window A never reached the manager model').toHaveLength(0)
+    } finally {
+      vi.restoreAllMocks()
+      h.releaseAll()
+      await disposeRestartComposition(mounted)
+    }
+  }, 90_000)
+
+  it.each([
+    { entry: 'create' },
+    { entry: 'resume' },
+  ] as const)('window B [$entry open]: the official open RETURNED its handle and close lands pre-publication — close stays pending until the real dispose settles, then the registry is clean', async ({ entry }) => {
+    const sandbox = await freshSandbox()
+    const tag = `win-b-${entry}`
+    let team: { scope: string; teamId: string } | undefined
+    if (entry === 'resume') {
+      const settled = await persistSettledManagerSession(sandbox, tag)
+      team = { scope: settled.scope, teamId: settled.teamId }
+    }
+    let entered!: () => void
+    const enteredP = new Promise<void>(resolve => { entered = resolve })
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let holdDispose!: () => void
+    const hold = new Promise<void>(resolve => { holdDispose = resolve })
+    let disposeStarted!: () => void
+    const startedP = new Promise<void>(resolve => { disposeStarted = resolve })
+    const state = { identity: '', handleReturned: false }
+    const opened = await openModuleOnTeam(sandbox, team, mounted => {
+      if (entry === 'create') {
+        const originalCreate = mounted.ctx.agents.create.bind(mounted.ctx.agents)
+        vi.spyOn(mounted.ctx.agents, 'create').mockImplementation(async options => {
+          const handle = await originalCreate(options) // the REAL official open completes...
+          state.identity = String(handle.agent.id)
+          state.handleReturned = true
+          instrument(handle)
+          entered()
+          await gate // ...but the module has NOT published it yet
+          return handle
+        })
+      } else {
+        const originalResume = mounted.ctx.agents.resume.bind(mounted.ctx.agents)
+        vi.spyOn(mounted.ctx.agents, 'resume').mockImplementation(async options => {
+          const handle = await originalResume(options)
+          state.identity = String(options.resumeSessionId)
+          state.handleReturned = true
+          instrument(handle)
+          entered()
+          await gate
+          return handle
+        })
+      }
+      // Make the late handle's REAL disposal observable and holdable, so the
+      // test can prove close remains pending until that disposal settles —
+      // not merely that dispose was called.
+      function instrument(handle: Awaited<ReturnType<typeof mounted.ctx.agents.create>>) {
+        const originalDispose = handle.dispose.bind(handle)
+        vi.spyOn(handle, 'dispose').mockImplementation(async () => {
+          disposeStarted()
+          await hold
+          await originalDispose()
+        })
+      }
+    })
+    const { mounted, module } = opened
+    try {
+      const opening = module.ensureManager()
+      await enteredP
+      const identity = state.identity // captured BEFORE close
+      expect(state.handleReturned, `window B (${entry}): the official open really returned its handle`).toBe(true)
+      expect(mounted.ctx.agents.get(SessionId(identity)), 'the returned Session is officially live pre-publication').toBeDefined()
+
+      const closing = module.close()
+      let closeSettled = false
+      void closing.then(() => { closeSettled = true })
+      release()
+      await startedP // the guard released the late handle...
+      await new Promise(resolve => setTimeout(resolve, 50)) // ...its REAL dispose is still held
+      expect(closeSettled, 'close must NOT complete while the module-owned late handle is still disposing').toBe(false)
+      holdDispose()
+      await closing // close completion now includes the settled disposal
+      expect(mounted.ctx.agents.get(SessionId(identity)), 'after close completion the late handle is really gone from the registry').toBeUndefined()
+      const failure = await opening.then(() => undefined, (error: unknown) => error as Error & { code?: string })
+      expect(failure, 'the late open must fail closed against the closed admission').toBeDefined()
+      expect([failure!.code ?? '', failure!.message].join(' ')).toContain('SKILLS_ADMISSION_CLOSED')
+      await expect(module.ensureManager(), 'the closed module refuses a reopen through the public face').resolves.toBeUndefined()
+      expect(mounted.ctx.agents.get(opened.root.id), 'business Agents are untouched by the raced open').toBeDefined()
+    } finally {
+      vi.restoreAllMocks()
+      holdDispose?.()
+      release?.()
+      await disposeRestartComposition(mounted)
+    }
+  }, 90_000)
 })

@@ -5,11 +5,14 @@
  * release only the module's own manager AgentHandle (business Agents are
  * never disposed) → close store → close the domain.
  *
- * This is the module API the shared `plugin/apply.ts` mounts (a single Root
- * writer window wires the import; the S1 specs mount this namespace directly,
- * the same way they mount every other official plugin, so RED→GREEN needs no
- * shared-file edit). Model routing is the module's OWN config (manager
- * provider/model), deliberately separate from the Team/Captain default route.
+ * This plugin ships as its OWN package subpath `dsh-agent-swarm/skills`
+ * (built as `lib/skills.mjs` in the SAME build graph as the Host main entry,
+ * so official error classes and symbols stay singletons across entries). The
+ * Host mounts this namespace directly — exactly like every other official
+ * plugin — with its own explicit management manifest and manager model
+ * route; the shared `plugin/apply.ts` does NOT mount it. Model routing is
+ * the module's OWN config (manager provider/model), deliberately separate
+ * from the Team/Captain default route.
  *
  * @module dsh-agent-swarm/skills/plugin
  */
