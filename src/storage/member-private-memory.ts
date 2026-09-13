@@ -28,8 +28,10 @@
  * `version: 1`, default single) is frozen. The durable table accepts a STRICT
  * v1|v2 record union — v1 note rows keep their historical shape (legacy legal
  * many-evidenceRef rows are never retro-bound by any future writer threshold),
- * while v2 maintenance rows (add/revise/invalidate/replace) are READ-ONLY here:
- * production writers in this slice still emit ONLY schemaVersion 1 rows. The
+ * while v2 maintenance rows (add/revise/invalidate/replace) are appended by
+ * the M1 self-maintenance entry (`appendMaintenance`, task-4, 2026-09); the
+ * legacy `append` path still emits ONLY schemaVersion 1 rows and SHARES the
+ * 256-row partition admission and the 64-ref bound with it. The
  * store folds through the pure `foldHistory` operation-index engine in
  * `member-private-memory-operations.ts` (types, schemas and the fold live
  * there; this file owns the domain handle, the store and the write fence).
@@ -51,11 +53,19 @@ import { assertTeamWritable } from './team-retirement-store.js'
 import {
   foldHistory,
   memoryKey,
+  normalizedRequestsEqual,
+  canonicalizeMaintenanceInput,
+  PRIVATE_MEMORY_MAINTENANCE_MAX_ROWS,
+  PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS,
   storedPrivateMemoryRecordSchema,
+  type MemberPrivateMemoryOperation,
   type MemberPrivateMemoryRecord,
+  type PrivateMemoryMaintenanceInput,
   type PrivateMemoryNote,
+  type PrivateMemoryNormalizedRequest,
   type PrivateMemoryOperationIndexEntry,
   type PrivateMemoryPage,
+  type PrivateMemoryProvenance,
   type PrivateMemoryReceipt,
   type StoredPrivateMemoryRecord,
 } from './member-private-memory-operations.js'
@@ -181,13 +191,23 @@ export class MemberPrivateMemoryStore {
       this.assertOpen()
       const validatedContent = nonEmpty(content, 'private memory content', 16_384)
       const validatedRefs = evidenceRefs.map(reference => nonEmpty(reference, 'private memory evidence reference', 2_048))
+      if (validatedRefs.length > PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS) {
+        throw new TeamDomainError('the private-memory evidence reference list exceeds the write-admission bound', 'TEAM_INPUT_LIMIT')
+      }
       // Full-history fold validation FIRST (fail closed on forged head/terminal/
       // operationId history before appending), then the next partition seq spans
       // ALL physical rows (v1 notes AND v2 maintenance operations), so a legacy
-      // append can never collide with a v2 maintenance record. Production writes
-      // still emit only v1 rows.
+      // append can never collide with a v2 maintenance record. The 256-row
+      // capacity is SHARED by both write paths: full rejects every new durable
+      // operation (legacy included) and never reclaims history or drifts seq.
       this.foldPartition(scope, teamId, memberSessionId)
       const existing = this.partitionRecords(scope, teamId, memberSessionId)
+      if (existing.length >= PRIVATE_MEMORY_MAINTENANCE_MAX_ROWS) {
+        throw new TeamDomainError(
+          'the private-memory partition is at capacity; appends are rejected and history is never reclaimed',
+          'TEAM_PRIVATE_MEMORY_CAPACITY',
+        )
+      }
       const seq = (existing.at(-1)?.seq ?? 0) + 1
       const record: MemberPrivateMemoryRecord = {
         schemaVersion: 1,
@@ -203,6 +223,124 @@ export class MemberPrivateMemoryStore {
       assertTeamWritable(this.ctx, scope, teamId)
       await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(record))
       return structuredClone(record)
+    })
+  }
+
+  /**
+   * Durably append ONE v2 maintenance operation for one owning member (task-4
+   * writer contract). The caller (service) has already re-checked identity,
+   * membership and cancellation and holds the Team fence through `admit`; the
+   * Host-derived `provenance` is observation-only and can never be model-supplied.
+   *
+   * Strict order inside the queued write:
+   *  1. fail-closed full-history fold FIRST (a forged partition rejects before any
+   *     admission decision, exactly like `append`);
+   *  2. idempotent retry read-back BEFORE any capacity or head check: a seen
+   *     operationId with an EQUIVALENT normalized request (Host metadata excluded)
+   *     returns that operation's ORIGINAL prefix receipt and appends nothing —
+   *     stable across reopens, because the receipt is rebuilt from the durable
+   *     prefix; the same operationId with a DIFFERENT normalized request is a
+   *     conflict with zero durable side effect;
+   *  3. capacity: the bound counts ALL physical rows (v1 notes AND v2
+   *     operations); full means loud `TEAM_PRIVATE_MEMORY_CAPACITY` rejection —
+   *     history is never physically reclaimed, so seq and offsets never drift;
+   *  4. record-level CAS against the folded current state: unknown target →
+   *     `TEAM_PRIVATE_MEMORY_NOT_FOUND`, invalidated/superseded target →
+   *     `TEAM_PRIVATE_MEMORY_TERMINAL` (even with a correct head), stale
+   *     `expectedHeadSeq` → `TEAM_PRIVATE_MEMORY_HEAD_CONFLICT`;
+   *  5. ONE durable put of the complete v2 row (replace carries the old target
+   *     AND the full replacement payload in the SAME row — never two puts
+   *     pretending atomicity), seq = max physical seq + 1 across both record kinds.
+   *
+   * @returns the receipt for this operation — for a fresh write, the receipt its
+   *   own durable prefix will produce (`replayed: false`); for a legal retry,
+   *   the ORIGINAL receipt rebuilt from the durable prefix (`replayed: true`),
+   *   a call-time fact that is deliberately NOT part of the durable receipt.
+   */
+  appendMaintenance(
+    scope: string, teamId: string, memberSessionId: string,
+    input: PrivateMemoryMaintenanceInput,
+    provenance: PrivateMemoryProvenance,
+    admit: (write: () => Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }>) => Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }>,
+  ): Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }> {
+    this.assertOpen()
+    const write = async (): Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }> => {
+      // The admission callback may have waited for the Team lock after queue entry.
+      this.assertOpen()
+      const operation = canonicalizeMaintenanceInput(input)
+      const { notes, index } = this.foldPartition(scope, teamId, memberSessionId)
+      const existing = this.partitionRecords(scope, teamId, memberSessionId)
+      const prior = index.find(entry => entry.receipt.operationId === operation.operationId)
+      if (prior !== undefined) {
+        const request: PrivateMemoryNormalizedRequest = operation.operation === 'invalidate'
+          ? { operation: 'invalidate', targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq }
+          : operation.operation === 'add'
+            ? { operation: 'add', content: operation.content, evidenceRefs: operation.evidenceRefs, tags: operation.tags, applicability: operation.applicability }
+            : {
+                operation: operation.operation, targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq,
+                content: operation.content, evidenceRefs: operation.evidenceRefs, tags: operation.tags, applicability: operation.applicability,
+              }
+        if (!normalizedRequestsEqual(prior.request, request)) {
+          throw new TeamDomainError(
+            `private-memory maintenance operationId '${operation.operationId}' already committed a different logical operation`,
+            'TEAM_PRIVATE_MEMORY_OPERATION_CONFLICT',
+          )
+        }
+        return { receipt: structuredClone(prior.receipt), replayed: true }
+      }
+      if (existing.length >= PRIVATE_MEMORY_MAINTENANCE_MAX_ROWS) {
+        throw new TeamDomainError(
+          'the private-memory partition is at capacity; maintenance is rejected and history is never reclaimed',
+          'TEAM_PRIVATE_MEMORY_CAPACITY',
+        )
+      }
+      if (operation.operation !== 'add') {
+        const target = notes.find(note => note.memoryId === operation.targetMemoryId)
+        if (target === undefined) {
+          throw new TeamDomainError(`private-memory maintenance target '${operation.targetMemoryId}' does not exist in this partition`, 'TEAM_PRIVATE_MEMORY_NOT_FOUND')
+        }
+        if (target.status !== 'active') {
+          throw new TeamDomainError(`private-memory maintenance target '${operation.targetMemoryId}' is ${target.status}`, 'TEAM_PRIVATE_MEMORY_TERMINAL')
+        }
+        if (target.headSeq !== operation.expectedHeadSeq) {
+          throw new TeamDomainError(
+            `private-memory maintenance expectedHeadSeq ${operation.expectedHeadSeq} disagrees with note '${operation.targetMemoryId}' head ${target.headSeq}`,
+            'TEAM_PRIVATE_MEMORY_HEAD_CONFLICT',
+          )
+        }
+      }
+      const seq = (existing.at(-1)?.seq ?? 0) + 1
+      const receipt: PrivateMemoryReceipt = operation.operation === 'add'
+        ? { operationId: operation.operationId, operation: 'add', operationSeq: seq, resultMemoryId: `private-memory-${seq}`, headSeq: seq, status: 'active' }
+        : operation.operation === 'revise'
+          ? { operationId: operation.operationId, operation: 'revise', operationSeq: seq, resultMemoryId: operation.targetMemoryId, headSeq: seq, status: 'active' }
+          : operation.operation === 'invalidate'
+            ? { operationId: operation.operationId, operation: 'invalidate', operationSeq: seq, resultMemoryId: operation.targetMemoryId, headSeq: seq, status: 'invalidated' }
+            : { operationId: operation.operationId, operation: 'replace', operationSeq: seq, resultMemoryId: `private-memory-${seq}`, headSeq: seq, status: 'active', replacedMemoryId: operation.targetMemoryId }
+      const common = {
+        schemaVersion: 2 as const, scope, teamId, memberSessionId, seq,
+        operationId: operation.operationId, provenance: structuredClone(provenance), createdAt: this.now(),
+      }
+      const operationRow: MemberPrivateMemoryOperation = operation.operation === 'invalidate'
+        ? { ...common, operation: 'invalidate', targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq }
+        : {
+            ...common,
+            operation: operation.operation,
+            ...('targetMemoryId' in operation ? { targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq } : {}),
+            content: operation.content,
+            evidenceRefs: [...operation.evidenceRefs],
+            tags: [...operation.tags],
+            applicability: operation.applicability,
+          }
+      assertTeamWritable(this.ctx, scope, teamId)
+      await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(operationRow))
+      return { receipt, replayed: false }
+    }
+    return this.commitSequence.run(async () => {
+      this.assertOpen()
+      // Same ordering rule as `append`: enter the memory queue first, then the
+      // caller-provided Team-fence admission — never the reverse.
+      return admit(write)
     })
   }
 

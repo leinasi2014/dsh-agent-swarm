@@ -13,11 +13,29 @@
 import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import { TeamDomainError } from '../domain/error.js'
+import { nonEmpty } from '../domain/team-domain-shared.js'
 
 /** Root-confirmed v2 format bounds (separate from any future WRITE-admission threshold). */
 const PRIVATE_MEMORY_MAX_TAGS = 32
 const PRIVATE_MEMORY_MAX_TAG_BYTES = 128
 const PRIVATE_MEMORY_MAX_APPLICABILITY_BYTES = 2_048
+
+/**
+ * WRITE-admission thresholds (docs04 §7.1 protocol version cced2c181c25b04fcd832c0415ec722e78677b3a + Root ruling):
+ * operationId ≤128 UTF-8 bytes, tags ≤32 items ×128 bytes, applicability
+ * ≤2,048 bytes, content ≤16,384 bytes, each evidence ref ≤2,048 bytes, and —
+ * for BOTH new write paths (the v1-only production `add` AND v2 maintenance) —
+ * at most 64 evidence refs (legacy rows with 64 refs stay legal and readable;
+ * the reader adds NO new admission bound to history). Partition CAPACITY is
+ * 256 PHYSICAL history rows counting ALL of v1 notes, v2 operations AND
+ * invalidated/superseded history: full means every NEW durable operation
+ * (legacy or maintenance) rejects loudly; nothing is ever physically
+ * reclaimed, so seq and offsets never drift and the legal history stays fully
+ * readable. Archival/compaction is a separate future slice. These are fixed
+ * code constants, deliberately not configuration.
+ */
+export const PRIVATE_MEMORY_MAINTENANCE_MAX_ROWS = 256
+export const PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS = 64
 
 const timestamp = z.number().int().min(0)
 const bounded = (maxBytes: number) => z.string().min(1).refine(
@@ -112,7 +130,7 @@ export interface MemberPrivateMemoryRecord {
 }
 
 /** Host-derived operation provenance (durable v2 branches only). */
-type PrivateMemoryProvenance =
+export type PrivateMemoryProvenance =
   | { readonly kind: 'unattributed' }
   | { readonly kind: 'task'; readonly taskId: string; readonly attemptId?: string; readonly teamRevision: number; readonly observedAt: number }
 
@@ -121,7 +139,7 @@ type PrivateMemoryProvenance =
  * four-branch union owns per-branch strictness; this projection shows the
  * branch-optional fields as optional (presence is schema/fold-enforced).
  */
-interface MemberPrivateMemoryOperation {
+export interface MemberPrivateMemoryOperation {
   readonly schemaVersion: 2
   readonly operation: 'add' | 'revise' | 'invalidate' | 'replace'
   readonly scope: string
@@ -151,7 +169,7 @@ export type StoredPrivateMemoryRecord = MemberPrivateMemoryRecord | MemberPrivat
  * Host-side re-observation can never change the identity of the model input —
  * and invalidate, which has no payload, remains comparable by target/head/op.
  */
-type PrivateMemoryNormalizedRequest =
+export type PrivateMemoryNormalizedRequest =
   | { readonly operation: 'add'; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
   | { readonly operation: 'revise'; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
   | { readonly operation: 'invalidate'; readonly targetMemoryId: string; readonly expectedHeadSeq: number }
@@ -449,4 +467,93 @@ export function foldHistory(
     })),
     index,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance WRITE vocabulary (task-4): the strict model input, its
+// canonicalization/admission, and the normalized-request equivalence that
+// distinguishes a legal retry from a same-operationId conflict. Pure code —
+// the durable row is assembled by the store; Host metadata never enters here.
+// ---------------------------------------------------------------------------
+
+/**
+ * One maintenance write as the MODEL may supply it: exactly the normalized
+ * operation branch (operation, the target/head the branch requires, and the
+ * complete payload the branch requires). Identity, Team, provenance, seq and
+ * time are Host-derived and deliberately NOT expressible in this input.
+ */
+export type PrivateMemoryMaintenanceInput =
+  | { readonly operation: 'add'; readonly operationId: string; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'revise'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'invalidate'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number }
+  | { readonly operation: 'replace'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+
+const maintenanceInvalid = (field: string): TeamDomainError =>
+  new TeamDomainError(`private-memory maintenance input is invalid: ${field}`, 'TEAM_INPUT_INVALID')
+const maintenanceLimit = (bound: string): TeamDomainError =>
+  new TeamDomainError(`private-memory maintenance input exceeds the ${bound} bound`, 'TEAM_INPUT_LIMIT')
+const sameStrings = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index])
+
+/**
+ * Validate one maintenance input against the write-admission thresholds and
+ * return its canonical form (content/refs trimmed non-empty; refs ≤32; tags
+ * trimmed non-empty, deduplicated, stable code-point order ≤32×128B;
+ * applicability trimmed, `''` = unconditional, ≤2,048B; operationId trimmed
+ * non-empty ≤128B; content ≤16,384B). Invalid input fails with the shared
+ * `TEAM_INPUT_INVALID`/`TEAM_INPUT_LIMIT` vocabulary and names only the
+ * offending field — never the private content.
+ */
+export function canonicalizeMaintenanceInput(input: PrivateMemoryMaintenanceInput): PrivateMemoryMaintenanceInput {
+  if (!['add', 'revise', 'invalidate', 'replace'].includes(input.operation)) throw maintenanceInvalid('operation')
+  const operationId = nonEmpty(input.operationId, 'operation id', 128)
+  const canonicalPayload = (payload: { content: string; evidenceRefs: readonly string[]; tags: readonly string[]; applicability: string }) => {
+    const content = nonEmpty(payload.content, 'content', 16_384)
+    if (payload.evidenceRefs.length > PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS) throw maintenanceLimit('evidence reference')
+    const evidenceRefs = payload.evidenceRefs.map(reference => nonEmpty(reference, 'evidence reference', 2_048))
+    const rawTags = payload.tags.map(tag => nonEmpty(tag, 'tag', 128))
+    const tags = [...new Set(rawTags)].toSorted()
+    if (tags.length > PRIVATE_MEMORY_MAX_TAGS) throw maintenanceLimit('tag')
+    const applicability = payload.applicability.trim()
+    if (Buffer.byteLength(applicability, 'utf8') > PRIVATE_MEMORY_MAX_APPLICABILITY_BYTES) throw maintenanceLimit('applicability')
+    return { content, evidenceRefs, tags, applicability }
+  }
+  if (input.operation === 'invalidate') {
+    if (!Number.isInteger(input.expectedHeadSeq) || input.expectedHeadSeq < 1) throw maintenanceInvalid('expectedHeadSeq')
+    return { operation: 'invalidate', operationId, targetMemoryId: nonEmpty(input.targetMemoryId, 'target memory id', 128), expectedHeadSeq: input.expectedHeadSeq }
+  }
+  if (input.operation === 'add') {
+    return { operation: 'add', operationId, ...canonicalPayload(input) }
+  }
+  if (!Number.isInteger(input.expectedHeadSeq) || input.expectedHeadSeq < 1) throw maintenanceInvalid('expectedHeadSeq')
+  return {
+    operation: input.operation, operationId,
+    targetMemoryId: nonEmpty(input.targetMemoryId, 'target memory id', 128),
+    expectedHeadSeq: input.expectedHeadSeq,
+    ...canonicalPayload(input),
+  }
+}
+
+/**
+ * Retry-comparison equivalence over the COMPLETE normalized request only
+ * (operation branch, target/head, branch payload). Host metadata (provenance,
+ * Host time, assigned seq) is not part of either side, so a re-observed Host
+ * context can never change whether a retry is the same logical operation.
+ */
+export function normalizedRequestsEqual(left: PrivateMemoryNormalizedRequest, right: PrivateMemoryNormalizedRequest): boolean {
+  if (left.operation !== right.operation) return false
+  if (left.operation === 'add' && right.operation === 'add') {
+    return left.content === right.content && sameStrings(left.evidenceRefs, right.evidenceRefs)
+      && sameStrings(left.tags, right.tags) && left.applicability === right.applicability
+  }
+  if (left.operation === 'invalidate' && right.operation === 'invalidate') {
+    return left.targetMemoryId === right.targetMemoryId && left.expectedHeadSeq === right.expectedHeadSeq
+  }
+  if ((left.operation === 'revise' || left.operation === 'replace') && left.operation === right.operation) {
+    const other = right as typeof left
+    return left.targetMemoryId === other.targetMemoryId && left.expectedHeadSeq === other.expectedHeadSeq
+      && left.content === other.content && sameStrings(left.evidenceRefs, other.evidenceRefs)
+      && sameStrings(left.tags, other.tags) && left.applicability === other.applicability
+  }
+  return false
 }

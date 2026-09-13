@@ -43,6 +43,7 @@ const PLUGIN_TOOL_NAMES = [
   // C1 public read pair: appended after the historical surface so every
   // existing entry keeps its stable prefix position.
   'agent_swarm_public_history', 'agent_swarm_public_message',
+  'agent_swarm_maintain_private_memory',
 ] as const
 
 /** Default effective policy: the plugin's own tool surface is allowed. */
