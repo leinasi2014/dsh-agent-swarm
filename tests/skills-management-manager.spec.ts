@@ -15,6 +15,7 @@
  * skills-management-manager-session.spec.ts; batch acknowledgement in
  * skills-management-ack.spec.ts.
  */
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -42,6 +43,7 @@ import {
 } from './helpers/skills-management-composition.js'
 import {
   failureFields,
+  readConsumerRow,
   readRow,
   REQUEST_TOOL,
   skillsSandboxTracker,
@@ -51,6 +53,27 @@ import {
 
 const tracker = skillsSandboxTracker('dsh-skills-mgr-')
 const freshSandbox = tracker.freshSandbox
+
+/** Read the REAL official tool-result block the live loop delivered for the
+ *  inv-s1 call out of the GenerateOptions history — matched EXACTLY by the
+ *  ToolResultBlock toolCallId (never fuzzy JSON content), never a
+ *  hand-assembled result, never private thoughts. */
+function captureInvS1ToolResult(options: GenerateOptions): { present: boolean; isError: unknown; summary: string } {
+  const blocks = options.messages.flatMap(message =>
+    Array.isArray((message as { content?: unknown }).content) ? (message as { content: unknown[] }).content : [],
+  )
+  const hit = blocks.find(block =>
+    typeof block === 'object' && block !== null
+    && (block as { type?: unknown }).type === 'tool-result'
+    && String((block as { toolCallId?: unknown }).toolCallId) === 'inv-s1')
+  if (hit === undefined) return { present: false, isError: undefined, summary: 'no tool-result block with toolCallId inv-s1 in the delivered history' }
+  const record = hit as Record<string, unknown>
+  return {
+    present: true,
+    isError: record.isError ?? undefined,
+    summary: JSON.stringify(hit).slice(0, 2_000),
+  }
+}
 
 describe('S1 manager core: real processing, real evidence, legal supplement', () => {
   it('drives one real investigate turn, persists the result, and stays tool-restricted (restrict({allow:[]}) + late-global counterexample)', async () => {
@@ -177,10 +200,25 @@ describe('S1 manager core: real processing, real evidence, legal supplement', ()
       // with no cursor/queue fakery anywhere.
       const gate1 = new Promise<void>(resolve => releaseGates.push(resolve))
       const gate2 = new Promise<void>(resolve => releaseGates.push(resolve))
+      // OBSERVATION: FUNCTION turns are evaluated the instant the NEXT real
+      // stream is requested — the entered flags are never pre-set, and the
+      // captured GenerateOptions carries the real history, including the
+      // official inv-s1 tool-result the loop delivered (requirement: gate
+      // entry is proven by the adapter actually being asked, and a tool
+      // error becomes distinguishable from an unsettled investigation).
+      const signals = { gate1Entered: false, gate2Entered: false }
+      let invS1ToolResult: { present: boolean; isError: unknown; summary: string } | undefined
       managerAdapter.append(
         skillsToolTurn('inv-s1', SKILLS_INVESTIGATE_TOOL, { request_id: 'mgr-supp-request' }),
-        [{ gate: gate1 }, ...skillsTextChunks('Old round completes late.')],
-        [{ gate: gate2 }, ...skillsToolTurn('inv-s2', SKILLS_INVESTIGATE_TOOL, { request_id: 'mgr-supp-request' })],
+        (options: GenerateOptions) => {
+          signals.gate1Entered = true
+          invS1ToolResult = captureInvS1ToolResult(options)
+          return [{ gate: gate1 }, ...skillsTextChunks('Old round completes late.')]
+        },
+        () => {
+          signals.gate2Entered = true
+          return [{ gate: gate2 }, ...skillsToolTurn('inv-s2', SKILLS_INVESTIGATE_TOOL, { request_id: 'mgr-supp-request' })]
+        },
         skillsTextChunks('New revision settled.'),
       )
       const first = await captainSkillsTool(mounted.ctx, root, 'supp-intake-1', REQUEST_TOOL, {
@@ -189,9 +227,36 @@ describe('S1 manager core: real processing, real evidence, legal supplement', ()
         evidence_refs: [`file:C:/evidence/old.ts#sha256:${'0'.repeat(64)}`],
       })
       expect(first.ok).toBe(true)
-      await vi.waitFor(async () => {
-        expect(await readRow(sandbox, scope, teamId, 'mgr-supp-request')).toMatchObject({ revision: 1, state: 'needs_evidence' })
-      }, { timeout: 8_000 })
+      // ONE original 8s window — no second waiting stage. The durable
+      // needs_evidence, the real gate1 entry, and the delivered inv-s1
+      // tool-result (exact toolCallId, no error) must all settle inside the
+      // SAME budget that existed before.
+      try {
+        await vi.waitFor(async () => {
+          expect(await readRow(sandbox, scope, teamId, 'mgr-supp-request')).toMatchObject({ revision: 1, state: 'needs_evidence' })
+          expect(signals.gate1Entered, 'the old round really reached its late completion stream').toBe(true)
+          expect(invS1ToolResult?.present, 'the delivered history carries the inv-s1 official tool-result').toBe(true)
+          expect(invS1ToolResult?.isError ?? false, `rev1 investigate must not tool-error, got: ${invS1ToolResult?.summary}`).toBe(false)
+        }, { timeout: 8_000 })
+      } catch (error) {
+        // Same-run evidence, then the ORIGINAL assertion failure stands:
+        // swallowed nothing, no retry, no budget change.
+        let consumerSummary: string
+        try {
+          const consumer = await readConsumerRow(sandbox, scope, teamId)
+          consumerSummary = consumer === undefined ? 'missing' : JSON.stringify(consumer).slice(0, 1_500)
+        } catch (readError) {
+          consumerSummary = `read-error: ${String(readError)}`
+        }
+        console.error('[supplement-diagnostic] ' + JSON.stringify({
+          managerStreamsRequested: managerAdapter.requests.length,
+          gate1Entered: signals.gate1Entered,
+          gate2Entered: signals.gate2Entered,
+          invS1ToolResult: invS1ToolResult ?? 'not-observed: the gate1 stream was never requested, so no tool-result was captured yet (absence of capture is NOT absence of an official result)',
+          consumerRow: consumerSummary,
+        }) + '\nNOTE: a consumer pendingBatch/baseline only locates the consumer commit OR LATER; the final fence can still fail after it.')
+        throw error
+      }
       const rowRev1 = await readRow(sandbox, scope, teamId, 'mgr-supp-request')
       expect(rowRev1!.managerSessionId, 'rev1 processing ownership is recorded').toBe(module.managerAgentId)
 
@@ -213,12 +278,16 @@ describe('S1 manager core: real processing, real evidence, legal supplement', ()
       // is durable and can never resurrect revision 1 or its payload evidence;
       // the rev2 investigation then runs through the same real manager turn.
       releaseGates[0]!()
-      await vi.waitFor(async () => {
-        // rev2 wake stalled BEFORE dispatching: still no attribution mid-window.
-        const mid = await readRow(sandbox, scope, teamId, 'mgr-supp-request')
-        expect(mid).toMatchObject({ revision: 2, state: 'received' })
-        expect(mid!.managerSessionId ?? undefined, 'still unattributed while the new round has not dispatched').toBeUndefined()
+      // gate2's flag is set ONLY when the adapter is asked for the next real
+      // manager stream — the honest instant where the revision-2 round has
+      // reached its tool turn but NOT dispatched it. Only now is the
+      // received/unattributed window proven, not merely possibly true.
+      await vi.waitFor(() => {
+        expect(signals.gate2Entered, 'the revision-2 round reached its undispatched tool turn').toBe(true)
       }, { timeout: 8_000 })
+      const mid = await readRow(sandbox, scope, teamId, 'mgr-supp-request')
+      expect(mid, 'rev2 stays received while its tool turn is undispatched').toMatchObject({ revision: 2, state: 'received' })
+      expect(mid!.managerSessionId ?? undefined, 'still unattributed while the new round has not dispatched').toBeUndefined()
       releaseGates[1]!()
       await module.flushWakes()
       const row = await readRow(sandbox, scope, teamId, 'mgr-supp-request')
