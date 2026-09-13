@@ -57,6 +57,16 @@ function authorityStatePath() {
   return join(common, 'dsh-agent-swarm-isolation', 'v1', 'state.json')
 }
 
+function expectRejectedBase(label, base, code) {
+  const before = existsSync(authorityStatePath()) ? readFileSync(authorityStatePath(), 'utf8') : undefined
+  expectFailure(label, ['open', '--id', 'rejected-base', '--branch', 'test/rejected-base', '--owner', 'writer-rejected', '--base', base], code)
+  const after = existsSync(authorityStatePath()) ? readFileSync(authorityStatePath(), 'utf8') : undefined
+  if (before !== after || existsSync(join(repo, '.worktree', 'rejected-base'))
+    || git(['for-each-ref', '--format=%(refname)', 'refs/heads/test/rejected-base']) !== '') {
+    throw new Error(`${label}: rejected base left an allocation, branch or directory`)
+  }
+}
+
 try {
   mkdirSync(repo)
   git(['init', '-b', 'main'])
@@ -95,7 +105,65 @@ try {
   expectFailure('invalid id', ['open', '--id', '../escape', '--branch', 'test/escape', '--owner', 'writer-a'], 'INVALID_ID')
   expectFailure('windows reserved filename', ['open', '--id', 'con.txt', '--branch', 'test/con', '--owner', 'writer-a'], 'INVALID_ID')
   expectFailure('invalid branch', ['open', '--id', 'bad-branch', '--branch', '-bad', '--owner', 'writer-a'], 'INVALID_BRANCH')
+
+  const authorityRemote = join(fixtureRoot, 'github.git')
+  git(['init', '--bare', '-b', 'main', authorityRemote])
+  git(['remote', 'add', 'github', authorityRemote])
+  git(['push', 'github', 'HEAD:refs/heads/main'])
+  const authorityBase = git(['rev-parse', 'HEAD'])
+  git(['commit', '--allow-empty', '--no-gpg-sign', '-m', 'test: local primary ahead of authority'])
+  const primaryBase = git(['rev-parse', 'HEAD'])
+  const authority = json(['open', '--id', 'authority-base', '--branch', 'test/authority-base', '--owner', 'writer-authority', '--base', authorityBase])
+  if (authority.base !== authorityBase || git(['rev-parse', 'HEAD'], authority.path) !== authorityBase) throw new Error('explicit authority base did not open at the verified remote commit')
+
+  git(['tag', '-a', 'authority-tag', '-m', 'test: annotated tag', authorityBase])
+  for (const value of ['HEAD', 'HEAD~1', 'github/main', 'authority-tag', authorityBase.slice(0, 12),
+    git(['rev-parse', 'authority-tag']), git(['rev-parse', 'HEAD^{tree}']), git(['rev-parse', 'HEAD:README.md']), '0'.repeat(40)]) {
+    expectRejectedBase(`non-commit or non-SHA base ${value}`, value, 'INVALID_BASE')
+  }
+
+  git(['update-ref', 'refs/remotes/github/main', primaryBase])
+  expectRejectedBase('stale tracking ref rejects real authority SHA', authorityBase, 'BASE_MISMATCH')
+  git(['update-ref', 'refs/remotes/github/main', authorityBase])
+  git(['push', 'github', 'HEAD:refs/heads/main'])
+  git(['update-ref', 'refs/remotes/github/main', authorityBase])
+  expectRejectedBase('remote moved beyond tracking ref', authorityBase, 'BASE_MISMATCH')
+  if (!json(['status']).healthy) throw new Error('remote advance must not invalidate an existing allocation')
+  expectFailure('authority allocation still fences owner', ['close', '--id', authority.id, '--generation', String(authority.generation), '--owner', 'other-writer', '--outcome', 'integrated'], 'OWNER_MISMATCH')
+  const unrelatedHead = git(['-c', 'commit.gpgSign=false', 'commit-tree', `${authorityBase}^{tree}`, '-m', 'test: unrelated worktree head'])
+  git(['update-ref', `refs/heads/${authority.branch}`, unrelatedHead])
+  expectFailure('authority base must remain an ancestor of allocation HEAD', ['status'], 'BASE_MISMATCH')
+  git(['update-ref', `refs/heads/${authority.branch}`, authorityBase])
+
+  git(['update-ref', '-d', 'refs/heads/main'], authorityRemote)
+  expectRejectedBase('missing live authority main', authorityBase, 'GIT_FAILED')
+  git(['push', 'github', 'HEAD:refs/heads/main'])
+  git(['update-ref', 'refs/remotes/github/main', authorityBase])
+
+  git(['update-ref', '-d', 'refs/remotes/github/main'])
+  expectRejectedBase('missing tracking ref', authorityBase, 'BASE_MISMATCH')
+  git(['update-ref', 'refs/remotes/github/main', authorityBase])
+  git(['remote', 'set-url', 'github', join(fixtureRoot, 'missing-remote.git')])
+  expectRejectedBase('authority read failure', authorityBase, 'GIT_FAILED')
+  git(['remote', 'remove', 'github'])
+  git(['update-ref', 'refs/remotes/github/main', authorityBase])
+  expectRejectedBase('tracking ref without authority remote', authorityBase, 'GIT_FAILED')
+  git(['remote', 'add', 'github', authorityRemote])
+
+  git(['remote', 'add', 'origin', authorityRemote])
+  git(['update-ref', 'refs/remotes/origin/main', authorityBase])
+  git(['branch', 'test/non-authority', authorityBase])
+  expectRejectedBase('old branch and backup SHA cannot replace current github authority', authorityBase, 'BASE_MISMATCH')
+  expectRejectedBase('backup ref is not an explicit commit SHA', 'origin/main', 'INVALID_BASE')
+
+  json(['close', '--id', authority.id, '--generation', String(authority.generation), '--owner', authority.owner, '--outcome', 'integrated'])
+  git(['remote', 'remove', 'github'])
+  const explicitLocal = json(['open', '--id', 'explicit-local', '--branch', 'test/explicit-local', '--owner', 'writer-local', '--base', primaryBase])
+  if (explicitLocal.base !== primaryBase) throw new Error('explicit primary SHA requires no authority remote')
+  json(['close', '--id', explicitLocal.id, '--generation', String(explicitLocal.generation), '--owner', explicitLocal.owner, '--outcome', 'integrated'])
+
   const first = json(['open', '--id', 'alpha', '--branch', 'test/alpha', '--owner', 'writer-a'])
+  if (first.base !== primaryBase) throw new Error('default base must remain the local primary HEAD without a remote')
   if (first.state !== 'ACTIVE' || first.generation !== 1 || first.owner !== 'writer-a') throw new Error('open did not publish ACTIVE generation 1')
   expectFailure('duplicate allocation', ['open', '--id', 'alpha', '--branch', 'test/alpha-2', '--owner', 'writer-a'], 'ALLOCATION_EXISTS')
   expectFailure('stale generation', ['close', '--id', 'alpha', '--generation', '2', '--owner', 'writer-a', '--outcome', 'integrated'], 'STALE_GENERATION')
@@ -254,7 +322,7 @@ try {
     throw new Error('CLOSING recovery evidence was lost while freezing UNKNOWN')
   }
   expectFailure('repaired evidence drift remains fail-closed', ['status'], 'RESULT_UNKNOWN')
-  console.log('Project-owned isolation lifecycle: positive open/close/archive/recovery and 33 negative cases: PASS')
+  console.log('Project-owned isolation lifecycle: positive open/close/archive/recovery, authority-base admission and existing negative cases: PASS')
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true })
 }
