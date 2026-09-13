@@ -34,6 +34,7 @@ export async function appendPublicMessage(deps: TeamDomainDeps, scope: TeamScope
     : { ...input, requestId: requestId(input.requestId), text: input.text.trim() }
   const digest = publicBindingDigest(teamId, normalized)
   return await deps.store.transact(scope, teamId, team => {
+    input.assertExecution?.()
     if (input.author.kind === 'agent') actorMembership(team, input.author.sessionId)
     const existing = team.publicChat?.messages.find(message => message.requestId === normalized.requestId
       && publicAuthorKey(message.author) === publicAuthorKey(input.author))
@@ -50,7 +51,7 @@ export async function appendPublicMessage(deps: TeamDomainDeps, scope: TeamScope
       'public target Team revision changed; retry the same request identity', 'TEAM_REVISION_CONFLICT')
     const author = freezeAuthor(team, input.author)
     const messages = team.publicChat?.messages ?? []
-    expectDomain((input.author.kind !== 'agent' || input.replyTo !== undefined)
+    expectDomain((input.author.kind !== 'agent' || input.formatVersion === 2 || input.replyTo !== undefined)
       && (input.replyTo === undefined || messages.some(message => message.id === input.replyTo)),
     'public replyTo must identify an existing message in this Team', 'TEAM_PUBLIC_REPLY_INVALID')
     expectDomain(publicChatReservedMessageCount(team.publicChat) < deps.limits.maxPublicMessages, 'public message/request capacity reached', 'TEAM_PUBLIC_CAPACITY')
@@ -64,7 +65,7 @@ export async function appendPublicMessage(deps: TeamDomainDeps, scope: TeamScope
         ? team.captainProfile?.displayName ?? 'captain' : member!.displayName ?? member!.name }
     }) : []
     if (normalized.formatVersion === 2) {
-      expectDomain(author.kind !== 'agent' || labels.length === 0, 'Agent replies do not request delivery', 'TEAM_PUBLIC_RECIPIENT_INVALID')
+      expectDomain(author.kind !== 'agent' || labels.length === 0, 'Agent public messages do not request delivery', 'TEAM_PUBLIC_RECIPIENT_INVALID')
       expectDomain(author.kind !== 'local-operator' || !hasUnconfirmedPublicMention(normalized.content),
         'Confirm the mention or escape the literal @', 'TEAM_PUBLIC_MENTION_UNCONFIRMED')
     }

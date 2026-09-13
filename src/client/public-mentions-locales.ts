@@ -1,6 +1,7 @@
 export const publicMentionsEn = {
   'directory.attributes': 'Profile', 'directory.work': 'Work', 'directory.model': 'Model', 'directory.skills': 'Skills', 'directory.toolPermissions': 'Tool permissions',
   'directory.closeProfile': 'Close member profile',
+  'directory.contact': 'Message', 'directory.contactOpening': 'Opening chat…',
   'directory.retainedHistory': 'Retained history · Accepted tasks: {accepted} · Rejected attempts: {rejected}',
   'public.segmentLimit': 'Too many text/mention segments: {count}/{limit}',
   'public.input': 'Message the team, @ to select members',
@@ -30,6 +31,7 @@ export const publicMentionsEn = {
 export const publicMentionsZh: Record<keyof typeof publicMentionsEn, string> = {
   'directory.attributes': '属性', 'directory.work': '工作', 'directory.model': '模型', 'directory.skills': 'Skills', 'directory.toolPermissions': '工具权限',
   'directory.closeProfile': '关闭成员资料',
+  'directory.contact': '发送消息', 'directory.contactOpening': '正在打开聊天…',
   'directory.retainedHistory': '保留记录：通过审核的任务 {accepted} 项 · 被驳回的尝试 {rejected} 次',
   'public.segmentLimit': '文字与提及段数超出限制：{count}/{limit}',
   'public.input': '输入消息，@ 选择成员', 'public.hint': '默认由队长处理 · Ctrl / ⌘ + Enter 发送',

@@ -50,13 +50,26 @@ export class RuntimeMutationSurface {
   constructor(private readonly deps: RuntimeMutationDeps) {}
 
   async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
+    if (typeof replyTo !== 'string' || replyTo.trim() === '') {
+      throw new TeamDomainError('Public reply requires an existing message ID', 'TEAM_PUBLIC_REPLY_INVALID')
+    }
+    return await this.appendPublicText(exec, requestId, text, replyTo)
+  }
+
+  async publicPost(exec: ToolExecutionAuthority, requestId: string, text: string) {
+    return await this.appendPublicText(exec, requestId, text)
+  }
+
+  private async appendPublicText(exec: ToolExecutionAuthority, requestId: string, text: string, replyTo?: string) {
     await this.deps.ensureReady()
     this.deps.assertOpen()
     const agent = requireAgent(exec)
     const scope = this.deps.scopeOf(agent)
     const exact = () => {
+      this.deps.assertOpen()
+      exec.signal.throwIfAborted()
       if (this.deps.ctx.agents.get(agent.id) !== agent || this.deps.ctx.sessions.get(agent.id) !== agent.session || this.deps.scopeOf(agent) !== scope) {
-        throw new TeamDomainError('Public reply requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
+        throw new TeamDomainError('Public message requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
       }
     }
     exact()
@@ -64,14 +77,14 @@ export class RuntimeMutationSurface {
     const existing = membership.team.publicChat?.messages.find(row => row.author.kind === 'agent'
       && row.author.sessionId === agent.id && row.requestId === requestId)
     if (existing === undefined && (await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
-      throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
+      throw new TeamDomainError('Public message requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
     }
     exact()
     exec.signal.throwIfAborted()
     return await this.deps.domain().appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
-      requestId, replyTo, ...(existing !== undefined && !('formatVersion' in existing) ? { text }
+      requestId, ...(replyTo === undefined ? {} : { replyTo }), ...(existing !== undefined && !('formatVersion' in existing) ? { text }
         : { formatVersion: 2 as const, content: [{ type: 'text' as const, text }] }),
-      expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+      expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision, assertExecution: exact })
   }
 
   async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {

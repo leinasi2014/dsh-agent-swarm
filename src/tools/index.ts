@@ -4,7 +4,7 @@ import type { MemberPrivateMemoryService } from '../runtime/member-private-memor
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js'
 import { registerSetCommunicationTool } from './communication.js'
-import { registerPublicReplyTool } from './public-chat.js'
+import { registerPublicChatTools } from './public-chat.js'
 import { registerVisualAssistanceTools } from './visual-assistance.js'
 import { registerWorkRequestTools } from './work-requests.js'
 import { registerDirectoryTool } from './directory.js'
@@ -65,7 +65,7 @@ export function registerAgentSwarmTools(
   registerReviewTaskTool(ctx, runtime)
   registerInterruptMemberTool(ctx, runtime)
   registerSendMessageTool(ctx, runtime)
-  registerPublicReplyTool(ctx, runtime)
+  registerPublicChatTools(ctx, runtime)
   registerVisualAssistanceTools(ctx, runtime)
   registerWorkRequestTools(ctx, runtime)
   registerDirectoryTool(ctx, runtime)
