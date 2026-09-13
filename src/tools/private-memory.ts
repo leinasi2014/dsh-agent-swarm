@@ -27,6 +27,34 @@ function privatePageWindow(args: { cursor?: number; limit?: number }): { cursor:
     evidence_refs_truncated: { type: 'boolean', required: true },
     created_at: { type: 'number', required: true },
     seq: { type: 'number', required: true },
+    // Fold metadata: present only on rows maintenance touched or v2 created
+    // (explicitly marked via created_via, never inferred), so legacy v1-only
+    // partitions keep the byte-identical historical row shape.
+    status: { type: 'string', description: "Fold status: 'active', 'invalidated', or 'superseded'." },
+    head_seq: { type: 'number', description: 'Newest operation seq touching this note (folded rows only).' },
+    superseded_by: { type: 'string', description: 'Replacement note id when this row was superseded by a replace.' },
+    provenance: {
+      type: 'object', additionalProperties: false,
+      description: "Host-derived origin: {kind:'unattributed'} or {kind:'task', task_id, attempt_id?, team_revision, observed_at}.",
+      properties: {
+        kind: { type: 'string', required: true },
+        task_id: { type: 'string' },
+        attempt_id: { type: 'string' },
+        team_revision: { type: 'number' },
+        observed_at: { type: 'number' },
+      },
+    },
+    tags: { type: 'array', items: { type: 'string' }, description: 'Canonical tags (trimmed, deduped, stable order) from the latest complete payload.' },
+    applicability: { type: 'string', description: "Bounded plain-text applicability from the latest complete payload; '' means unconditional." },
+    created_via: {
+      type: 'object', additionalProperties: false,
+      description: 'Set when this note was created BY a v2 add/replace operation (explicit creation origin).',
+      properties: {
+        operation_id: { type: 'string', required: true },
+        operation: { type: 'string', required: true },
+        seq: { type: 'number', required: true },
+      },
+    },
   },
 } as const
 

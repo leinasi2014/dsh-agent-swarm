@@ -16,8 +16,11 @@ import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
  *  4. Authority is strictly the owning active member: captain, peers, external
  *     sessions, removed members, and archived members are all rejected.
  *  5. Cross-member and pagination correctness in both contexts.
+ *  6. v2 maintenance rows fold through the REAL tool face: `agent_swarm_list_
+ *     private_memory` output passes its strict output schema with the folded
+ *     fold-metadata/provenance fields present (no duplicated schema, no cast).
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -35,6 +38,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { PRIVATE_MEMORY_DOMAIN_NAME } from '../src/storage/member-private-memory.js'
 
 const SIGNAL = new AbortController().signal
 const CAPTAIN = SessionId('private-memory-real-captain')
@@ -383,4 +387,99 @@ describe('member private memory real composition', () => {
       if (first !== undefined) await dispose(first)
     }
   }, 60_000)
+
+  it('folds strict v2 rows into agent_swarm_list_private_memory output that passes the real strict tool-output validation', async () => {
+    // Root-accepted reader-acceptance gap (2026-09): the 27 existing tool-path
+    // cases are v1-only; the extended row shape must be proven through the REAL
+    // ctx.tools.execute face, whose strict output schema (additionalProperties:
+    // false, no duplicated schema, no cast) rejects any field it does not know.
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-private-memory-v2-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    let second: Mounted | undefined
+    try {
+      // ---- Context A: real composition seeds ONE legacy v1 note via the tool face ----
+      first = await mount(sandbox)
+      first.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'pm2-create', 'agent_swarm_create', {
+        name: 'V2 fold proof', description: 'Prove v2 maintenance rows surface through the strict tool output.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const added = await tool(first.ctx, leadA, 'pm2-add', 'agent_swarm_add_member', { name: 'foldy', role: 'Owns the v2 fold proof.' })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      await pollUntil(async () => {
+        const current = await snapshot(first!.ctx, leadA, teamId)
+        return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
+      })
+      const resolved = await memberAgent(first.ctx, memberId)
+      const scope = first.ctx.agentSwarm.scopeOf(resolved.agent)
+      try {
+        const seed = await tool(first.ctx, resolved.agent, 'pm2-seed', 'agent_swarm_add_private_memory', { content: 'base note', evidence_refs: [] })
+        expect(seed).toMatchObject({ isError: false, value: { memory_id: 'private-memory-1', seq: 1 } })
+      } finally {
+        await resolved.dispose()
+      }
+
+      // ---- medium fully closed, THEN raw-append STRICT v2 rows (add + replace) ----
+      await dispose(first)
+      first = undefined
+      const unitFile = join(sandbox, 'storage', `${PRIVATE_MEMORY_DOMAIN_NAME}.json`)
+      const unit = JSON.parse(await readFile(unitFile, 'utf8')) as { tables: { memories: Record<string, unknown> } }
+      const v2Key = (seq: number) => JSON.stringify([scope, teamId, memberId, seq])
+      unit.tables.memories[v2Key(2)] = {
+        schemaVersion: 2, operation: 'add', scope, teamId, memberSessionId: memberId, seq: 2,
+        operationId: 'op-fold-add', provenance: { kind: 'task', taskId: 'task-fold', teamRevision: 5, observedAt: 123 },
+        createdAt: 1000, content: 'added by v2', evidenceRefs: ['ref-fold'], tags: ['m1', 'tag'], applicability: 'when folding',
+      }
+      unit.tables.memories[v2Key(3)] = {
+        schemaVersion: 2, operation: 'replace', scope, teamId, memberSessionId: memberId, seq: 3,
+        operationId: 'op-fold-replace', provenance: { kind: 'task', taskId: 'task-fold-replace', teamRevision: 5, observedAt: 124 },
+        createdAt: 1001, targetMemoryId: 'private-memory-1', expectedHeadSeq: 1,
+        content: 'replaced base', evidenceRefs: ['ref-replaced'], tags: ['replacement'], applicability: 'when replacing',
+      }
+      await writeFile(unitFile, `${JSON.stringify(unit, null, 2)}\n`, 'utf8')
+
+      // ---- Context B: real cold reopen; the ACTUAL tool face reads the fold ----
+      second = await mount(sandbox)
+      second.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
+      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
+      const resumedMember = await second.ctx.agents.resume({ resumeSessionId: SessionId(memberId) })
+      try {
+        const listed = await tool(second.ctx, resumedMember.agent, 'pm2-list', 'agent_swarm_list_private_memory', {})
+        // Reaching `isError: false` at all means the strict tool OUTPUT schema
+        // accepted the extended rows — the proof the plain row() unit tests cannot give.
+        expect(listed).toMatchObject({ isError: false })
+        const memories = (listed.value as { memories: Array<Record<string, unknown>> }).memories
+        // Folded creation order: superseded old note KEEPS offset 0; the v2 add
+        // and the replace result are appended at their operation positions.
+        expect(memories.map(row => row.memory_id)).toEqual(['private-memory-1', 'private-memory-2', 'private-memory-3'])
+        expect(memories[0]).toMatchObject({
+          content: 'base note', seq: 1, status: 'superseded', head_seq: 3, superseded_by: 'private-memory-3',
+        })
+        // The legacy payload's origin stays UNKNOWN: no fabricated provenance field.
+        expect('provenance' in memories[0]!).toBe(false)
+        expect(memories[1]).toMatchObject({
+          content: 'added by v2', seq: 2, status: 'active', head_seq: 2,
+          tags: ['m1', 'tag'], applicability: 'when folding',
+          created_via: { operation_id: 'op-fold-add', operation: 'add', seq: 2 },
+          provenance: { kind: 'task', task_id: 'task-fold', team_revision: 5, observed_at: 123 },
+        })
+        expect(memories[2]).toMatchObject({
+          content: 'replaced base', seq: 3, status: 'active', head_seq: 3,
+          tags: ['replacement'], applicability: 'when replacing',
+          created_via: { operation_id: 'op-fold-replace', operation: 'replace', seq: 3 },
+          provenance: { kind: 'task', task_id: 'task-fold-replace', team_revision: 5, observed_at: 124 },
+        })
+      } finally {
+        await resumedMember.dispose()
+        await resumedCaptain.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+      if (second !== undefined) await dispose(second)
+    }
+  }, 90_000)
 })
