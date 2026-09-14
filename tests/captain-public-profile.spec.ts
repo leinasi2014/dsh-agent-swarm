@@ -12,9 +12,6 @@ import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
 const PIXEL = '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>'
 
-const mutable = (state: TeamState): Array<{ id: string; text: string; createdAt: number }> =>
-  state.announcements as unknown as Array<{ id: string; text: string; createdAt: number }>
-
 describe('Captain public profile + announcements (permission, CAS, persistence, safety)', () => {
   let sandbox: string
   let scope: string
@@ -184,6 +181,8 @@ describe('Captain public profile + announcements (permission, CAS, persistence, 
     expect(() => assertTeamState(strProfile, 'strProfile')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
 
     // Malformed announcement id, duplicate id, untrimmed text, non-decreasing createdAt.
+    const mutable = (state: TeamState): Array<{ id: string; text: string; createdAt: number }> =>
+      state.announcements as unknown as Array<{ id: string; text: string; createdAt: number }>
     const badId = clone(); mutable(badId)[1]!.id = 'x'
     expect(() => assertTeamState(badId, 'badId')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
     const dup = clone(); mutable(dup)[1]!.id = mutable(dup)[0]!.id
@@ -192,60 +191,6 @@ describe('Captain public profile + announcements (permission, CAS, persistence, 
     expect(() => assertTeamState(untrimmed, 'untrimmed')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
     const unordered = clone(); mutable(unordered)[1]!.createdAt = 50
     expect(() => assertTeamState(unordered, 'unordered')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
-  })
-
-  it('TEAM_REVISION_CONFLICT diagnostics carry expected/current, the no-write declaration and single-retry guidance', async () => {
-    await open()
-    const team = await domain.createTeam(scope, 'captain-session', 'CAS diag', 'diagnose conflicts')
-    await domain.provisionMember(scope, team.id, 'captain-session', {
-      name: 'worker', role: 'worker', sessionId: 'member-w', provider: 'spawn',
-    })
-    await domain.settleMember(scope, team.id, 'member-w', { active: true })
-    const stale = (await domain.snapshot(scope, team.id, 'captain-session')).team.revision
-
-    // Winner first, then the authoritative snapshot BEFORE the stale CAS under test.
-    await domain.setCaptainProfile(scope, team.id, 'captain-session', stale, { displayName: 'Winner' })
-    const beforeProfileFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    const profileFailure = await domain.setCaptainProfile(scope, team.id, 'captain-session', stale, { displayName: 'Loser' })
-      .then(() => { throw new Error('expected TEAM_REVISION_CONFLICT') }, error => error)
-    const afterProfileFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    expect(afterProfileFailure).toEqual(beforeProfileFailure)
-    expect(profileFailure).toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
-    expect(profileFailure.message).toContain(`expected ${stale}, current ${beforeProfileFailure.revision}`)
-    expect(profileFailure.message).toContain('nothing was written')
-    expect(profileFailure.message).toContain('agent_swarm_status')
-    expect(profileFailure.message).toContain('once')
-    expect(profileFailure.message).toContain('stop retrying')
-
-    // One legal retry with the re-read revision succeeds.
-    const retried = await domain.setCaptainProfile(scope, team.id, 'captain-session', afterProfileFailure.revision, { displayName: 'Retry' })
-    expect(retried.captainProfile?.displayName).toBe('Retry')
-
-    // The announcement entry carries the same serialized diagnostic and invariant.
-    const announced = await domain.publishAnnouncement(scope, team.id, 'captain-session', retried.revision, 'First.')
-    expect(announced.team.revision).toBe(retried.revision + 1)
-    const beforeAnnouncementFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    const announcementFailure = await domain.publishAnnouncement(scope, team.id, 'captain-session', retried.revision, 'Again.')
-      .then(() => { throw new Error('expected TEAM_REVISION_CONFLICT') }, error => error)
-    const afterAnnouncementFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    expect(afterAnnouncementFailure).toEqual(beforeAnnouncementFailure)
-    expect(announcementFailure).toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
-    expect(announcementFailure.message).toContain(`expected ${retried.revision}, current ${beforeAnnouncementFailure.revision}`)
-    expect(announcementFailure.message).toContain('nothing was written')
-    expect(announcementFailure.message).toContain('agent_swarm_status')
-    expect(announcementFailure.message).toContain('once')
-    expect(announcementFailure.message).toContain('stop retrying')
-    expect(afterAnnouncementFailure.announcements?.map(a => a.text)).toEqual(['First.'])
-
-    // Real member role failures on both captain-only entries precede the revision check and never leak current.
-    const memberProfileFailure = await domain.setCaptainProfile(scope, team.id, 'member-w', afterAnnouncementFailure.revision, { displayName: 'Hijack' })
-      .then(() => { throw new Error('expected rejection') }, error => error)
-    expect(memberProfileFailure).toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    expect(memberProfileFailure.message).not.toContain('current')
-    const memberAnnouncementFailure = await domain.publishAnnouncement(scope, team.id, 'member-w', afterAnnouncementFailure.revision, 'hijack')
-      .then(() => { throw new Error('expected rejection') }, error => error)
-    expect(memberAnnouncementFailure).toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    expect(memberAnnouncementFailure.message).not.toContain('current')
   })
 
   it('is surfaced on the Captain-only and delegated-member tool deny surfaces', () => {

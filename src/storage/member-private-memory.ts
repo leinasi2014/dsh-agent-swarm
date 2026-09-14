@@ -60,11 +60,9 @@ import {
   storedPrivateMemoryRecordSchema,
   type MemberPrivateMemoryOperation,
   type MemberPrivateMemoryRecord,
-  type PrivateMemoryClaim,
   type PrivateMemoryMaintenanceInput,
   type PrivateMemoryNote,
   type PrivateMemoryNormalizedRequest,
-  type PrivateMemoryObservation,
   type PrivateMemoryOperationIndexEntry,
   type PrivateMemoryPage,
   type PrivateMemoryProvenance,
@@ -294,7 +292,6 @@ export class MemberPrivateMemoryStore {
     scope: string, teamId: string, memberSessionId: string,
     input: PrivateMemoryMaintenanceInput,
     provenance: PrivateMemoryProvenance,
-    witnessed: PrivateMemoryObservation | undefined,
     admit: (write: () => Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }>) => Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }>,
   ): Promise<{ receipt: PrivateMemoryReceipt; replayed: boolean }> {
     this.assertOpen()
@@ -306,17 +303,13 @@ export class MemberPrivateMemoryStore {
       const existing = this.partitionRecords(scope, teamId, memberSessionId)
       const prior = index.find(entry => entry.receipt.operationId === operation.operationId)
       if (prior !== undefined) {
-        const claim = 'claim' in operation ? operation.claim : undefined
-        const observation = 'observation' in operation ? operation.observation : undefined
         const request: PrivateMemoryNormalizedRequest = operation.operation === 'invalidate'
           ? { operation: 'invalidate', targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq }
           : operation.operation === 'add'
-            ? { operation: 'add', content: operation.content, evidenceRefs: operation.evidenceRefs, tags: operation.tags, applicability: operation.applicability, ...(claim === undefined ? {} : { claim }), ...(observation === undefined ? {} : { observation }) }
+            ? { operation: 'add', content: operation.content, evidenceRefs: operation.evidenceRefs, tags: operation.tags, applicability: operation.applicability }
             : {
                 operation: operation.operation, targetMemoryId: operation.targetMemoryId, expectedHeadSeq: operation.expectedHeadSeq,
                 content: operation.content, evidenceRefs: operation.evidenceRefs, tags: operation.tags, applicability: operation.applicability,
-                ...(claim === undefined ? {} : { claim }),
-                ...(observation === undefined ? {} : { observation }),
               }
         if (!normalizedRequestsEqual(prior.request, request)) {
           throw new TeamDomainError(
@@ -355,14 +348,8 @@ export class MemberPrivateMemoryStore {
           : operation.operation === 'invalidate'
             ? { operationId: operation.operationId, operation: 'invalidate', operationSeq: seq, resultMemoryId: operation.targetMemoryId, headSeq: seq, status: 'invalidated' }
             : { operationId: operation.operationId, operation: 'replace', operationSeq: seq, resultMemoryId: `private-memory-${seq}`, headSeq: seq, status: 'active', replacedMemoryId: operation.targetMemoryId }
-      // Explicit durable versioning (M3): a witnessed-result row is a
-      // schemaVersion 4 row (the observation block is mandatory there); a
-      // declared-quality row is schemaVersion 3; everything else keeps the
-      // frozen schemaVersion 2 shape byte-identically.
-      const qualityClaim = 'claim' in operation ? operation.claim : undefined
       const common = {
-        schemaVersion: (witnessed !== undefined ? 4 : qualityClaim === undefined ? 2 : 3) as 2 | 3 | 4,
-        scope, teamId, memberSessionId, seq,
+        schemaVersion: 2 as const, scope, teamId, memberSessionId, seq,
         operationId: operation.operationId, provenance: structuredClone(provenance), createdAt: this.now(),
       }
       const operationRow: MemberPrivateMemoryOperation = operation.operation === 'invalidate'
@@ -375,8 +362,6 @@ export class MemberPrivateMemoryStore {
             evidenceRefs: [...operation.evidenceRefs],
             tags: [...operation.tags],
             applicability: operation.applicability,
-            ...(qualityClaim === undefined ? {} : { claim: structuredClone(qualityClaim) }),
-            ...(witnessed === undefined ? {} : { observation: structuredClone(witnessed) }),
           }
       assertTeamWritable(this.ctx, scope, teamId)
       await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(operationRow))
@@ -420,8 +405,6 @@ export class MemberPrivateMemoryStore {
     provenance?: { kind: 'unattributed' } | { kind: 'task'; task_id: string; attempt_id?: string; team_revision: number; observed_at: number }
     tags?: string[]
     applicability?: string
-    claim?: { environment: string; version: string; outcome: PrivateMemoryClaim['outcome']; task_id?: string; attempt_id?: string }
-    observation?: { kind: 'observed_result'; tool: string; call_id: string; call_seq: number; result_seq: number; is_error: boolean; result_digest: string; team_revision: number; observed_at: number }
     created_via?: { operation_id: string; operation: 'add' | 'replace'; seq: number }
   } {
     const evidenceRefs = record.evidenceRefs.slice(0, PRIVATE_MEMORY_EVIDENCE_TRUNCATE)
@@ -460,32 +443,6 @@ export class MemberPrivateMemoryStore {
       }),
       ...(record.tags === undefined ? {} : { tags: [...record.tags] }),
       ...(record.applicability === undefined ? {} : { applicability: record.applicability }),
-      // DECLARED quality metadata (M3): absent stays absent — never invented
-      // for legacy or plain notes.
-      ...(record.claim === undefined ? {} : {
-        claim: {
-          environment: record.claim.environment,
-          version: record.claim.version,
-          outcome: record.claim.outcome,
-          ...(record.claim.taskId === undefined ? {} : { task_id: record.claim.taskId }),
-          ...(record.claim.attemptId === undefined ? {} : { attempt_id: record.claim.attemptId }),
-        },
-      }),
-      // Host-witnessed result observation (M3 evidence segment): the Host's
-      // own record — absent stays absent, never invented.
-      ...(record.observation === undefined ? {} : {
-        observation: {
-          kind: 'observed_result' as const,
-          tool: record.observation.tool,
-          call_id: record.observation.callId,
-          call_seq: record.observation.callSeq,
-          result_seq: record.observation.resultSeq,
-          is_error: record.observation.isError,
-          result_digest: record.observation.resultDigest,
-          team_revision: record.observation.teamRevision,
-          observed_at: record.observation.observedAt,
-        },
-      }),
       ...(record.createdVia === undefined ? {} : {
         created_via: { operation_id: record.createdVia.operationId, operation: record.createdVia.operation, seq: record.createdVia.seq },
       }),

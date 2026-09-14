@@ -1,38 +1,29 @@
-# 03. 完整蜂群架构与能力边界
+# 03. Team 总体架构与能力边界
 
 本文件是 Team 总体架构与 capability ownership 的唯一说明。具体状态机、错误和并发合同以 [04-core-protocol.md](04-core-protocol.md) 为准；界面结构以 [10-team-ui-layout.md](10-team-ui-layout.md) 为准。下文区分已有实现、接入约束与后续设计；设计图不证明某个安装环境已完成验收。版本身份读取 [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)，部署与验收结果留在对应候选和真实运行证据中。
 
 ## 1. 组合图
 
-```mermaid
-flowchart TB
-  User[用户 / Main Brain] --> Captain[各队 Captain：目标与交付责任]
-  Captain --> Domain[TeamDomain：成员、任务、审核、协作消息与预算]
-  Domain --> Sense[感知投影：团队态势、同伴能力、相关变化]
-  Official[官方 DSH：Session、Subagent、Tools、Skills、Storage、Jobs] --> Sense
-  Sense --> Members[成员：理解任务、按需找人、执行与回应]
-  Members --> Comm[选择性沟通：公开请求与回复、私有同伴通信]
-  Comm --> Domain
-  Domain --> Delivery[现有投递与恢复 owner：持久意图、准入、唤醒]
-  Delivery --> Members
-  Members --> Review[原 Task / attempt / Review Gate]
-  Review --> Domain
-  Members <--> Private[本人私有记忆：维护、作废、有界召回]
-  Captain --> Skills[独立 Skills 模块：申请、复用、候选、验证与获准版本]
-  Domain -->|经授权的工作事实与精确证据| Skills
-  Skills --> Apply[Captain 分配 / Host 装配 / 官方加载证据]
-  Apply --> Members
-  Review --> Growth[成长投影：经验与技能使用效果的证据关联]
-  Apply --> Growth
-  Growth -->|明确改进需求| Skills
-  Domain --> UI[原会话中的群聊、成员资料、任务与群信息]
-  Sense --> UI
-  Skills --> UI
+```text
+Official DSH execution plane
+  Session + Agent + Subagent + Tools + System Prompt
+  Workflow + Jobs + Storage Domain + Settings + Client slots
+                              │ consumed by
+                              ▼
+AgentSwarmRuntime
+  ├─ TeamDomainPort ── StorageDomainTeamStore
+  │    Team / Captain binding / roster / tasks / attempts / mail / budget
+  ├─ orchestration Providers
+  │    Scheduler / Review / Workflow bridge / execution root / permission
+  ├─ model Consumers
+  │    role-scoped agent_swarm_* tools + ordered usage prompt
+  ├─ read producer
+  │    Host binding → /swarm/v1 read RPC
+  └─ client Consumers
+       Team Workbench V3 + Plugin Settings
 ```
 
-此图是完整目标架构，包含尚待交付的感知增量、公开协作、技能版本管理与成长关联，不能作为当前安装能力清单。`TeamDomainPort` 是 Team 协作的唯一 mutation 边界。Human-interaction overlay、workflow run overlay 和 member-private-memory domain 只拥有自己的关联数据，不复制 Team aggregate。Skills 模块拥有技能生命周期，不接管 Team 调度或业务审核。
-
-用户结果是：成员知道自己和团队正在解决什么，能依据可信能力与当前工作选择同伴；请求、回应与版本共识在群里可追踪；经验能在下一项工作中被正确使用，可复用技能经验证后服务多个获授权团队。界面上线、工具存在、模型自述和任务 completed 都不能单独证明这条链完成。
+`TeamDomainPort` 是 Team 协作的唯一 mutation 边界。Human-interaction overlay、workflow run overlay 和 member-private-memory domain 只拥有自己的关联数据，不复制 Team aggregate。
 
 ### 1.1 用户、会话与执行关系
 
@@ -48,7 +39,7 @@ flowchart TB
   MemberA -. 当前 attempt 与提交 .-> TeamA
   MemberB -. 当前 attempt 与提交 .-> TeamA
   TeamA --> Read[Host 验证绑定并投影]
-  Read --> UI[原会话群聊 / 右侧成员与群信息]
+  Read --> UI[官方右侧栏 Team 页签]
 ```
 
 Main Brain 负责跨 Team 的用户入口；Captain 在自己的 Session 中统筹单个 Team；成员的模型调用、工具执行和结果保留在各自 Session。Team 是协作域对象，不是另一份聊天历史。成员间邮箱消息可以进入收件人的官方模型上下文，但不能把多个个人 transcript 拼接成 Team 的权威群聊。
@@ -77,31 +68,6 @@ UI 的 controller 复用同一个只读目标和读取生命周期。姓名、�
 官方当前把同步 Session projection 与私有 Journal/Roster/Mailbox/TaskBoard 直接组合，尚无可替换异步事务后端；公开生命周期缺少 removed 和本插件的失败重试语义。这些限制未由官方补齐前保留现有实现，不重复投入迁移。成员退出仍须同时撤权、fence/requeue attempt 和终止旧消息，不能把 removed 映射为 failed，不能把普通缓存当作授权事务。Main 作官方 Lead 的扁平化路线、Captain 改普通 root 的路线都会改变现有真实层级，不采用。
 
 采用顺序、功能清单、扩展点验证和回退条件见 [统一开发方案 §2.1](07-implementation-roadmap.md#21-官方-agent-teams-完整功能采用方案)。每项在同一版本的实际组合中通过后才删除相应自建职责，不能凭源码同名或模型自评放行。依据见 [官方源登记](09-sources.md)及固定版本的 agent-team 服务、roster、mailbox、journal、projection 和 task-board 源码。
-
-### 1.4 分层与唯一职责
-
-| 层与模块 | 输入与职责 | 持久 owner / 官方接入 | 明确边界 |
-|---|---|---|---|
-| 执行底座 | 模型请求、工具、个人历史、子会话、真实运行状态 | 官方 Session / Agent / Subagent / Tools | 不重写 Agent Loop，不拼接私有 transcript 作为群聊 |
-| 团队控制 | 目标、成员、DAG、attempt、预算、审核、暂停与恢复 | 现有 TeamDomain / Scheduler / Review | 协作讨论不成为第二套任务完成或分配权威 |
-| 信息感知 | 按身份、任务和信息时效组合团队概览、能力与变化 | TeamDirectory、identity-context、Host read 的可重建投影 | 不设独立可写“团队大脑数据库”；看过目录不等于读过提案 |
-| 选择性沟通 | 选择对象、公开请求/回应、定向交付与有界升级 | 公共协作使用原 public outbox / MessageDelivery；内部同伴通信保留原 mailbox | 模型决定找谁，Host 检查是否可以；不全员无条件唤醒，同一公共投递不复制两份债务 |
-| 个人经验 | 本人笔记保存、修订/作废、按合法任务召回 | 独立 private-memory domain + 私有 context Consumer | Captain、同伴、Skills 管理模型均不能读本人私有全文 |
-| 技能管理 | Captain 申请、发现复用、受控候选、验证、批准、版本与撤销 | 独立 Skills Service、官方 Storage Domain / Skills / Jobs | 管理模型不自批、不借 Team 权限发布、不自改业务文件 |
-| 成长与效果 | 将实际使用版本、任务结果、失败修复及有效经验关联展示 | 原工作事实、加载记录与私有记录的授权投影 | 不新增等级分数、永久成长账本或第二审核状态机 |
-| 交互与运营 | 群聊、成员个人会话、资料、版本状态与失败恢复 | 官方 Client slots / SidebarRight / Settings | 复用已确认会话入口，不恢复额外全局团队菜单 |
-
-默认编排采用“Captain 负责目标和交付，成员在本队自主定向协作”。Captain 不必逐条代传；成员直接提出问题、审查与答复，但不因此获得他人的写入、审核或工具权限。全局 Main 只接收获授权的跨队摘要和升级请求，不自动阅读各队的个人会话。
-
-群聊优先交付，开发依赖分为 C1→C2→A1、M1→M2、S1→S2→S3 三条可并行推进的链；跨队授权效果投影消费已交付的能力和使用事实。私有经验与独立 Skills 不以通信整链完成为开工前置，共享装配与版本协议由统一 owner 串行接入。公开请求复用现有公共记录内的 recipient frame 和投递状态，由 `MessageDelivery.deliverPublicMessages` 及其既有恢复生命周期推进；内部 mailbox 不为同一公开请求另记一份执行债务。通信、记忆、Skills、安全恢复与交互的边界在下述协议内统一，不以重新命名模块或增加协调层代替产品路径。
-
-### 1.5 信息可信度与成本
-
-每条能力信息同时表达来源、精确主体、覆盖范围和有效时点：声明的职业/Skills、实际装配的工具/模型、已经加载的技能版本、经验证的任务结果分别呈现。`active` 只表示成员资格；running/idle、当前任务和待答请求分别取实际来源；不可读就显示 unknown。工具目录可见并不证明具体参数经过官方 sandbox/approval 检查后一定能执行。
-
-自动上下文只带本队当前目标修订、与本人相关的工作/协作摘要和有界变化；完整资料、原文、技能正文与证据按需读取。未运行的成员不会因“更新了概览”而被假定知情：只有相关、未闭合的工作意图进入现有投递准入，才可能唤醒。目录、讨论、任务和技能各保留自己的版本与游标，不用整个 Team revision 的每次增长触发全员读全量数据。
-
-初版使用确定的字段筛选、任务关联和有界分页，不引入向量库或另一个消息中间件。模型可以依据这些事实选择同伴；不存在信息时，不制造“最擅长”“已经掌握”或实时剩余产能评分。
 
 ## 2. 当前实现
 
@@ -258,12 +224,6 @@ flowchart TD
 
 ### 6.2 共享队员目录与能力判定
 
-本节现有基线是轻量身份上下文与显式完整目录；下列三层感知是待交付扩展。第一层在实际请求中提供当前目标、本人任务、相关未答请求和重要决定的有界摘要；第二层按需读取完整同伴能力、群消息原文、任务及制品版本；第三层消费相关变化，失效后重读权威来源。变化提示仅携带类型、来源版本和可读取 ID，不向全员广播全部正文。
-
-相关性先按明确接收人、当前 task/attempt、负责制品、待回答关系和 Captain 升级判断；专业标签只能帮助选择，不自动授予读取或唤醒权限。成员先查已公开事实，再选择少量能提供缺失信息的同伴。队长看到目标覆盖、依赖、未闭合请求和实际阻塞；跨队 Main 只看到获授权摘要、协助入口及覆盖限制，不能枚举任意队伍或成员私有会话。
-
-快照标明来源范围、版本、水位、截断和 unknown；增量出现缺口、回退、身份变更或撤权时重建当前投影，不能沿用旧缓存授权。资料、技能目录、模型路由和任务状态来自不同 owner，不能用单个 Team revision 假定全部有效。资料保存成功后发布失效通知，UI 重读；初始职业与本人资料初始化分别显示，不能把缺字段解释为前端延迟，也不为资料初始化阻塞紧急业务任务。
-
 每个成员在首次加入、恢复及核心协作信息改变后的下一次处理前，自动获得来自当前 Team 聚合的轻量摘要：稳定 ID、名称、职责、职业、成员阶段和开放任务。本人身份与角色指令保留；自动装配不读取全员 Session、模型、Skills 或工具目录。
 
 UI 资料卡、`@` 候选和显式 `agent_swarm_directory` 继续消费同一个受验证的完整目录，不各自猜测或维护姓名缓存。完整条目包括稳定 ID、名称、职责、职业、性格、简介、Skills 名称及用途、assigned 与 Session-visible 状态、工具可用/需批准/禁用信息、当前 provider/model、图像能力、成员阶段、当前任务及各来源时间。自动摘要限制成员和任务数量、缩略长职责与题目，并标明未读数量及显式读取入口；需要完整资料、能力或任务详情时再读取对应工具。Skill 正文通过已有授权读能力按需获取，不将分配某 Skill 等同于已学会、已使用或有权调用全部相关工具。成员私有记忆、凭据、系统私密内容与原始工具秘密参数不进入目录；队员资料作为协作数据，不获得系统指令权限。
@@ -278,19 +238,13 @@ UI 资料卡、`@` 候选和显式 `agent_swarm_directory` 继续消费同一个
 4. 同一协助请求复用不可变图片，保留稳定请求与结果 ID；限制重复/并发重试，记录已访问成员，初始方案禁止协助对象继续链式转交同一请求。无可用视觉成员、能力未知、超时或内容不可读时公开明确状态，由原接收人/Captain 决定下一步，不反复互相唤醒。
 5. 图片协助不会自动招募新成员、切换原成员模型、扩大工具权限或接受任务。是否以后允许 Captain 受预算约束补充视觉成员，另作扩展。
 
-图片追加、授权读取和协助是现有 Host、TeamDomain 与 Client Consumer 的扩展，不新增 Service 或恢复 owner。Attachment 是可选服务，缺失时明确关闭图片路径而保留文本路径。已支持图片的目标经官方 `readImage` 完整性校验后，由现有 `@deepseek-ai/dsh-subagent/internal` 的 `steerHostSubagentPrompt` 接收原始 `ContentBlock[]` 与真实来源，沿官方 ContinuationManager 执行能力、准确父级和冷恢复校验。该入口是固定 rc.2 已发布的 internal Host adapter，升级须验证契约，不称为稳定公共 Service。它避免将已 admission 的图再编码送入 `subagents.prompt` 导致二次 normalization 和引用漂移；仍须由 Host 检查 Team 访问权、当前成员、取消信号及 Captain lease。
+图片追加、授权读取和协助是现有 Host、TeamDomain 与 Client Consumer 的扩展，不新增 Service 或恢复 owner。Attachment 是可选服务，缺失时明确关闭图片路径而保留文本路径。已支持图片的目标经官方 `readImage` 完整性校验后，由现有 `@deepseek-ai/dsh-subagent/internal` 的 `steerHostSubagentPrompt` 接收原始 `ContentBlock[]` 与真实来源，沿官方 ContinuationManager 执行能力、准确父级和冷恢复校验。该入口是固定 alpha.2 已发布的 internal Host adapter，升级须验证契约，不称为稳定公共 Service。它避免将已 admission 的图再编码送入 `subagents.prompt` 导致二次 normalization 和引用漂移；仍须由 Host 检查 Team 访问权、当前成员、取消信号及 Captain lease。
 
 读取证据入口为 `packages/attachment/attachment/src/types.ts`、`packages/client/file-upload/src/types.ts`、`packages/llm/llm/src/content.ts`、`packages/subagent/subagent/src/internal.ts` 与 `src/continuation.ts`。官方 file upload receipt 具有接收 Agent scope；群聊不另设 receipt 上传协议，而在同一 v3 append 中由 Host 整批 admission。两参考源只供 durable-before-live 投递和 Swarm 协作失败语义，附件及 Session 类型遵循官方。具体 wire、投影冻结与去重见 [图片与视觉协助协议](04-core-protocol.md#83-公共图片与自主视觉协助)。底层接口证据不等于群聊功能、真实模型或冷恢复验收；本轮产品不包含视频。
 
 ### 6.4 发言模式扩展与验收边界
 
-首版选定“成员自主选择对象，Captain 负责目标与交付”的选择性协作。成员可公开提出问题、请求独立审查、引用回答和提交修订，无须 Captain 逐条转发。新增通用公开读取与定向协作合同见 [协议 §8.6](04-core-protocol.md#86-选择性感知与公开协作目标合同)；当前 public_post/public_reply 只发布、不自动唤醒的默认行为保持兼容。现有视觉协助已具备自己的请求与返回链，不能据此声称通用审查已完成。
-
-先独立产出意见，再读同伴证据进行交叉审查，最后由 Captain 按原 Review Gate 判断当前制品，避免先看到结论后互相附和。回复不是同意，读到不是审查通过；接受结论必须绑定实际 task/attempt 与制品版本。资料和职业只作选择线索，独立模型与不同角色也不能保证错误独立。
-
-每次主动协作有接收人上限、字数与证据引用预算、截止时间、重复请求去重及最大升级次数。额度由现有准入 owner 控制；新增显式请求在限流时保持可诊断的待交付状态与到期时间，由原恢复 owner 推进，不能悄悄降为永不唤醒的 quiet 后宣称已响应。普通旧 quiet 语义保持不变。无新证据的重复答复不能形成互相唤醒循环，关闭或过期后不再生成后续自主请求。
-
-队长协调、指定轮次和全体征询是同一 admission policy 的后续选项，不各建消息循环。首版不强制全连接或轮流发言；暂停新增工作、取消、归档、撤权和卸载沿既有边界收敛，已有工作收尾仍依原合同。界面刷新、模型回合与任务完成三者分别观察。
+队长协调、轮流发言、自由发言属于未来 admission/scheduling policy，必须复用同一个任务/消息投递 owner。它们不等于 UI 刷新频率或现有交流强度；公开范围、任务状态与模型消费事实保持独立。轮流模式需持久轮次与发言权，自由发言需公平性、预算、结束条件及回应风暴抑制；切换要验证权限、revision 和在途工作边界。此轮只记录扩展，不注册 mode runtime 或假造生效状态。
 
 代表性设计验收覆盖：同名/改名/退出成员的 `@`、中文输入法与键盘、多提及去重、图片独立发送与上传失败、切 Team 草稿隔离、非视觉原接收人自主选择视觉成员、未知/撤销能力、零视觉成员、协助去重与责任保持、目录变更后成员读到新资料、关闭页面和冷恢复后原消息/图片/结果仍可追溯。原型交互、静态设计、真实模型、持久化及正式部署分别记证据。
 
@@ -333,16 +287,6 @@ UI 资料卡、`@` 候选和显式 `agent_swarm_directory` 继续消费同一个
 - 官方 Storage Domain 单记录 update 承载需共同原子提交的模块记录；Jobs 仅承载慢验证的观察与取消。模块离线不阻塞任务审核或现有获准版本使用，模型不能自批候选或扩大 allow-list。
 
 自动身份上下文使用轻量成员/当前任务摘要；完整 TeamDirectory 保持显式可读及源一致性检查。本人行为规则、撤权复核和官方 context 恢复保持有效，不能将减少目录读取表述为已经提升实际任务效率。
-
-### 8.1 个人成长的可验证闭环
-
-成长表示可追溯的工作改进：本人记录适用条件与失败原因，在下一项合法工作召回；经允许分享的经验由 Captain 提出技能需求；独立模块先寻找可复用获准版本，再对真实缺陷生成候选、执行对照及相邻反例、取得独立批准并发布不可变版本。下一 attempt 实际加载该版本后，才把结果与版本关联。失败案例可以作为经核实的反例，不能将原始失败输出当作已验证知识。
-
-个人页展示本人有效经验、已分配/实际加载技能及有证据的案例；群页仅展示获授权的技能和工作事实。成员、Captain 与 Main 的视图按同一权限投影，私有经验不会因生成成长展示而变成共享。由旧记录可重建的效果关联不另建永久分数；样本不足、任务难度变化、模型升级和缺少对照时显示证据限制，不宣称模型权重学习或因果提升。
-
-Skills 发布 owner 与官方加载 owner 分开：官方 scoped SkillRegistry 负责发现与内容选择，独立模块负责获准 manifest，Team 负责分配。必须覆盖工具加载及合法 skill-invocation 两条实际正文入口，并保留 Team allowed 空集历史含义与 member assigned 空集禁用含义的区别。RLM 可提供有界计算/验证，skill-teacher 当前 M0 入口不能作为已完成的演进引擎。
-
-Skills 的来源关联首先引用经明确允许共享的材料及摘要，私有召回正文和选集 ID 不向跨队目录或管理模型导出。Team 取消或归档只终止该队请求/分配资格，不删除其他队使用的共享获准 release。验证者可在有界临时执行区运行测试，但不得改固定候选、批准记录或发布资产；权限由实际工具与资源能力限制。缺少满足此边界的公开 seam 时只阻塞相应验证切片，不降低发布门，也不阻塞公开群聊交付。
 
 ## 9. 实现与验收入口
 

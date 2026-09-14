@@ -15,7 +15,6 @@ import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState, TeamTask } from '../domain/types.js'
 import { MemberPrivateMemoryStore, type MemberPrivateMemoryRecord, type PrivateMemoryNote, type PrivateMemoryPage } from '../storage/member-private-memory.js'
-import { completeObservation } from '../storage/member-private-memory-claim.js'
 import {
   canonicalizeMaintenanceInput,
   type PrivateMemoryMaintenanceInput,
@@ -154,34 +153,7 @@ export class MemberPrivateMemoryService {
     const owner = await this.owningMember(exec)
     const operation = canonicalizeMaintenanceInput(input)
     const provenance = this.hostProvenance(owner.team, owner.memberSessionId)
-    // M3 evidence segment: the tool layer already witnessed the ACTUAL
-    // call/result pair from this member's own live Session window. The Host
-    // stamps its complete block with its own pre-fence snapshot revision and
-    // clock — the model can never supply or alter these fields (only the six
-    // witness core fields even exist at this layer).
-    const citedObservation = 'observation' in operation ? operation.observation : undefined
-    const witnessed = citedObservation === undefined ? undefined
-      : completeObservation(citedObservation, field => new TeamDomainError(
-        `private-memory maintenance input is invalid: ${field}`, 'TEAM_INPUT_INVALID',
-      ), owner.team.revision, this.now())
-    // M3 DECLARED-metadata binding: a claim may CITE a task/attempt, but the
-    // citation must match the Host's OWN observed attribution from the
-    // pre-fence snapshot (proven). A foreign or unobserved citation rejects —
-    // the model can never write a source the Host did not observe. Absence
-    // stays honest: no citation, no Host source claim.
-    if ('claim' in operation && (operation.claim?.taskId !== undefined || operation.claim?.attemptId !== undefined)) {
-      const cited = operation.claim
-      const matches = provenance.kind === 'task'
-        && cited?.taskId === provenance.taskId
-        && (cited?.attemptId === undefined || cited.attemptId === provenance.attemptId)
-      if (!matches) {
-        throw new TeamDomainError(
-          'private-memory maintenance claim binding does not match the Host-observed task attribution',
-          'TEAM_INPUT_INVALID',
-        )
-      }
-    }
-    return await this.requireStore().appendMaintenance(owner.scope, owner.teamId, owner.memberSessionId, operation, provenance, witnessed, write =>
+    return await this.requireStore().appendMaintenance(owner.scope, owner.teamId, owner.memberSessionId, operation, provenance, write =>
       this.deps.domain().withActiveMember(owner.scope, owner.teamId, owner.memberSessionId, () => {
         // No await between the final caller/signal check and the durable write.
         // The Team lock is held until put settles; later abort cannot undo it.

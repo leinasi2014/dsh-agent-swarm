@@ -10,11 +10,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { TeamDomainError } from '../domain/error.js'
-import { requireAgent } from '../runtime/authority.js'
 import { MemberPrivateMemoryService } from '../runtime/member-private-memory-service.js'
-import { witnessObservation } from '../runtime/member-private-memory-witness.js'
-import type { PrivateMemoryObservationCore } from '../storage/member-private-memory-claim.js'
-import type { PrivateMemoryClaim, PrivateMemoryMaintenanceInput } from '../storage/member-private-memory-operations.js'
+import type { PrivateMemoryMaintenanceInput } from '../storage/member-private-memory-operations.js'
 import { MemberPrivateMemoryStore } from '../storage/member-private-memory.js'
 import { compactJsonOutput, register } from './shared.js'
 import { pageWindow } from './read-surface.js'
@@ -22,35 +19,7 @@ import { pageWindow } from './read-surface.js'
 /** Shared bounded cursor contract (the established aggregate-backed readers' pageWindow). */
 function privatePageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
   return pageWindow(args)
-}
-
-/** Strictly parse the model's observation CITATION (only a call id may be
- *  supplied; everything else is Host-witnessed downstream). */
-function citedObservationCallId(args: Record<string, unknown>): string | undefined {
-  const value = args.observation
-  if (value === undefined) return undefined
-  const invalid = new TeamDomainError('agent_swarm_maintain_private_memory input is invalid: observation', 'TEAM_INPUT_INVALID')
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalid
-  const citation = value as Record<string, unknown>
-  for (const key of Object.keys(citation)) if (key !== 'call_id') throw invalid
-  if (typeof citation.call_id !== 'string' || citation.call_id.trim() === '' || citation.call_id.length > 256) throw invalid
-  return citation.call_id
-}
-
-/** Declared-quality metadata shape, shared by the note-view output schema and
- *  the maintenance tool's parameter schema. The two sites carried byte-identical
- *  property literals; the per-site prose stays with each reader. `as const`
- *  matches the spec's readonly enum/flag fields (dsh-tools schema.d.ts), so
- *  both usages keep EXACTLY their previous literal types. */
-const CLAIM_QUALITY_PROPERTIES = {
-  environment: { type: 'string', required: true },
-  version: { type: 'string', required: true },
-  outcome: { type: 'string', required: true, enum: ['reported_pass', 'reported_failure', 'declared_observed', 'hypothesis'] },
-  task_id: { type: 'string' },
-  attempt_id: { type: 'string' },
-} as const
-
-const PRIVATE_MEMORY_ROW_SCHEMA = {
+}const PRIVATE_MEMORY_ROW_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     memory_id: { type: 'string', required: true },
@@ -78,26 +47,6 @@ const PRIVATE_MEMORY_ROW_SCHEMA = {
     },
     tags: { type: 'array', items: { type: 'string' }, description: 'Canonical tags (trimmed, deduped, stable order) from the latest complete payload.' },
     applicability: { type: 'string', description: "Bounded plain-text applicability from the latest complete payload; '' means unconditional." },
-    claim: {
-      type: 'object', additionalProperties: false,
-      description: "DECLARED quality metadata (M3) from the latest complete payload — the model's own tier, NEVER a Host-verified conclusion; task_id/attempt_id are citations already matched against the Host-observed attribution. Absent means quality unknown (legacy/plain notes are never upgraded).",
-      properties: CLAIM_QUALITY_PROPERTIES,
-    },
-    observation: {
-      type: 'object', additionalProperties: false,
-      description: "Host-witnessed result observation (M3 evidence segment): the Host's own record of one real tool call in the member's current session window — actual tool name, log positions, the result's real error identity, and a bounded digest. It witnesses only that the tool really returned that result; it never validates the note's conclusion.",
-      properties: {
-        kind: { type: 'string', required: true },
-        tool: { type: 'string', required: true },
-        call_id: { type: 'string', required: true },
-        call_seq: { type: 'number', required: true },
-        result_seq: { type: 'number', required: true },
-        is_error: { type: 'boolean', required: true },
-        result_digest: { type: 'string', required: true },
-        team_revision: { type: 'number', required: true },
-        observed_at: { type: 'number', required: true },
-      },
-    },
     created_via: {
       type: 'object', additionalProperties: false,
       description: 'Set when this note was created BY a v2 add/replace operation (explicit creation origin).',
@@ -184,18 +133,14 @@ const PRIVATE_MEMORY_MAINTAIN_VALUE_SCHEMA = {
 } as const
 
 /** Per-branch strict input face; anything outside the whitelist is rejected WITHOUT echoing values. */
-function maintenanceInputFromArgs(
-  operation: string,
-  args: Record<string, unknown>,
-  witnessed: PrivateMemoryObservationCore | undefined,
-): PrivateMemoryMaintenanceInput {
+function maintenanceInputFromArgs(operation: string, args: Record<string, unknown>): PrivateMemoryMaintenanceInput {
   const invalid = (field: string): TeamDomainError =>
     new TeamDomainError(`agent_swarm_maintain_private_memory input is invalid: ${field}`, 'TEAM_INPUT_INVALID')
   const whitelist: Record<string, readonly string[]> = {
-    add: ['operation', 'operation_id', 'content', 'evidence_refs', 'tags', 'applicability', 'claim', 'observation'],
-    revise: ['operation', 'operation_id', 'target_memory_id', 'expected_head_seq', 'content', 'evidence_refs', 'tags', 'applicability', 'claim', 'observation'],
+    add: ['operation', 'operation_id', 'content', 'evidence_refs', 'tags', 'applicability'],
+    revise: ['operation', 'operation_id', 'target_memory_id', 'expected_head_seq', 'content', 'evidence_refs', 'tags', 'applicability'],
     invalidate: ['operation', 'operation_id', 'target_memory_id', 'expected_head_seq'],
-    replace: ['operation', 'operation_id', 'target_memory_id', 'expected_head_seq', 'content', 'evidence_refs', 'tags', 'applicability', 'claim', 'observation'],
+    replace: ['operation', 'operation_id', 'target_memory_id', 'expected_head_seq', 'content', 'evidence_refs', 'tags', 'applicability'],
   }
   const allowed = whitelist[operation]
   if (allowed === undefined) throw invalid('operation')
@@ -214,44 +159,12 @@ function maintenanceInputFromArgs(
     return value as string[]
   }
   const operationId = text('operation_id')
-  // DECLARED quality metadata (M3): strictly shaped, snake→camel. This is a
-  // model DECLARATION only; the Host separately checks any cited task/attempt
-  // against its OWN observed attribution downstream — never here.
-  const claimFromArgs = (): PrivateMemoryClaim | undefined => {
-    const value = args.claim
-    if (value === undefined) return undefined
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalid('claim')
-    const claim = value as Record<string, unknown>
-    for (const key of Object.keys(claim)) {
-      if (!['environment', 'version', 'outcome', 'task_id', 'attempt_id'].includes(key)) throw invalid(`claim.${key}`)
-    }
-    const outcomes = ['reported_pass', 'reported_failure', 'declared_observed', 'hypothesis']
-    if (typeof claim.environment !== 'string' || typeof claim.version !== 'string') throw invalid('claim')
-    if (typeof claim.outcome !== 'string' || !outcomes.includes(claim.outcome)) throw invalid('claim.outcome')
-    if (claim.task_id !== undefined && typeof claim.task_id !== 'string') throw invalid('claim.task_id')
-    if (claim.attempt_id !== undefined && typeof claim.attempt_id !== 'string') throw invalid('claim.attempt_id')
-    return {
-      environment: claim.environment,
-      version: claim.version,
-      outcome: claim.outcome as 'reported_pass' | 'reported_failure' | 'declared_observed' | 'hypothesis',
-      ...(typeof claim.task_id === 'string' ? { taskId: claim.task_id } : {}),
-      ...(typeof claim.attempt_id === 'string' ? { attemptId: claim.attempt_id } : {}),
-    }
-  }
-  const payloadFields = () => {
-    const claim = claimFromArgs()
-    return {
-      content: text('content'),
-      evidenceRefs: strings('evidence_refs'),
-      tags: strings('tags'),
-      applicability: text('applicability'),
-      ...(claim === undefined ? {} : { claim }),
-      ...(witnessed === undefined ? {} : { observation: witnessed }),
-    }
-  }
-  // RESULT observation (M3 evidence segment): the model may only CITE a call
-  // id; the Host witnessed the actual call/result pair from the caller's own
-  // live Session BEFORE this call — nothing here is a model-writable fact.
+  const payloadFields = () => ({
+    content: text('content'),
+    evidenceRefs: strings('evidence_refs'),
+    tags: strings('tags'),
+    applicability: text('applicability'),
+  })
   if (operation === 'add') return { operation: 'add', operationId, ...payloadFields() }
   const targetMemoryId = text('target_memory_id')
   const expectedHeadSeq = args.expected_head_seq
@@ -283,18 +196,6 @@ export function registerMaintainPrivateMemoryTool(ctx: Context, service: MemberP
       evidence_refs: { type: 'array', items: { type: 'string' }, description: 'REQUIRED array (may be empty) for add/revise/replace; forbidden for invalidate. Up to 64 evidence references, each ≤2,048 bytes.' },
       tags: { type: 'array', items: { type: 'string' }, description: 'REQUIRED array (may be empty) for add/revise/replace; forbidden for invalidate. Up to 32 tags, each ≤128 bytes; canonicalized (trimmed, deduplicated, stable order).' },
       applicability: { type: 'string', description: 'REQUIRED string for add/revise/replace (\'\' = unconditional), ≤2,048 bytes; forbidden for invalidate. Revise is a FULL replacement: these four fields replace the note\'s current content and metadata completely — no partial patch.' },
-      claim: {
-        type: 'object', additionalProperties: false,
-        description: 'OPTIONAL DECLARED quality metadata for add/revise/replace — a JSON OBJECT, never a string. These are YOUR declarations, never Host-verified conclusions; recall always labels them unverified. A cited task_id/attempt_id must match the Host-observed attribution of this write or the write rejects. Revise without a claim clears the previous declaration (full replacement).',
-        properties: CLAIM_QUALITY_PROPERTIES,
-      },
-      observation: {
-        type: 'object', additionalProperties: false,
-        description: 'OPTIONAL result-observation citation for add/revise/replace: { call_id } — the id of ONE tool call YOU ALREADY made in your CURRENT session window. The Host witnesses the actual call/result pair (tool name, log positions, the result\'s real error identity, a bounded digest) and stores its own record; unknown or ambiguous call_ids reject. This witnesses only that the tool really returned that result — it NEVER validates the note\'s technical conclusion and never raises the quality tier.',
-        properties: {
-          call_id: { type: 'string', required: true },
-        },
-      },
     },
     output: compactJsonOutput(PRIVATE_MEMORY_MAINTAIN_VALUE_SCHEMA),
     async execute(args, exec) {
@@ -303,31 +204,7 @@ export function registerMaintainPrivateMemoryTool(ctx: Context, service: MemberP
       }
       const record = args as unknown as Record<string, unknown>
       const operation = typeof record.operation === 'string' ? record.operation : ''
-      // M3 evidence segment: the model CITES one call id; the Host witnesses
-      // the ACTUAL unique call/result pair inside the caller's CURRENT live
-      // Agent's own Session window (never the fork-inherited prefix, never an
-      // ambiguous callId). Failure names only the reason, never call content.
-      const cited = citedObservationCallId(record)
-      let witnessed: PrivateMemoryObservationCore | undefined
-      if (cited !== undefined && ['add', 'revise', 'replace'].includes(operation)) {
-        const agent = requireAgent(exec)
-        // The witness reads ONLY the CURRENT registered official Agent and
-        // its official Session (exact registry identity, same oracle as the
-        // established runtime gates) — never a stale or replaced handle.
-        if (ctx.agents.get(agent.id) !== agent || ctx.sessions.get(agent.id) !== agent.session) {
-          throw new TeamDomainError(
-            'private-memory maintenance observation requires the currently registered Agent and official Session',
-            'TEAM_INPUT_INVALID',
-          )
-        }
-        witnessed = witnessObservation(agent.session, cited, reason => {
-          throw new TeamDomainError(
-            `private-memory maintenance observation cannot be witnessed: ${reason}`,
-            'TEAM_INPUT_INVALID',
-          )
-        })
-      }
-      const input = maintenanceInputFromArgs(operation, record, witnessed)
+      const input = maintenanceInputFromArgs(operation, record)
       const { receipt, replayed } = await service.maintain(exec, input)
       return {
         operation_id: receipt.operationId,

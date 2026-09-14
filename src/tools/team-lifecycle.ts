@@ -160,16 +160,13 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
 export function registerSetMemberProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_member_profile',
-    description: 'An active member defines its own display name, personality, biography and avatar using its exact roster name. The Captain may update only profession. Supply current Team revision and at least one identity field; omitted fields are preserved. Two-step save: first the text fields, read them back with agent_swarm_list_members, then save the avatar in a second call. expected_revision is the Team revision you last read; the first save must carry the exact current revision and establishes your profile version — afterwards unrelated Team activity no longer conflicts, only a concurrent change to this same profile does, and the error names expected vs current for a re-read-and-retry. Updated identity enters subsequent model context; Session, role, Skills and model do not change.',
+    description: 'An active member defines its own display name, personality, biography and avatar using its exact roster name. The Captain may update only profession. Supply current Team revision and at least one identity field; omitted fields are preserved. Updated identity enters subsequent model context; Session, role, Skills and model do not change. On conflict re-read before retrying.',
     parameters: {
       name: { type: 'string', required: true, description: 'Exact existing roster name from list_members.' },
-      expected_revision: { type: 'number', required: true, description: 'Team revision from your latest read (agent_swarm_status/list_members); the first save needs the exact current one. Conflicts fail with TEAM_REVISION_CONFLICT reporting expected vs current.' },
+      expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },
       ...identityParameters,
     },
-    output: {
-      schema: profileOutput.schema,
-      render: (args: unknown, value: { revision: number }) => [{ type: 'text' as const, text: `Set profile for ${(args as { name?: string }).name ?? 'member'} (revision ${value.revision}). Read it back with agent_swarm_list_members; save the avatar as a second call if still missing.` }],
-    },
+    output: profileOutput,
     async execute(args, exec) {
       const team = await runtime.setMemberProfile(exec, args.expected_revision, args.name, identityPatch(args))
       return { revision: team.revision }

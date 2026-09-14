@@ -131,81 +131,6 @@ export function assertPlanDraftShape(value: unknown, path: string): void {
     }
   }
 }
-
-const APPEND_CHANGE_KEYS = new Set(['changeId', 'initiatedBySessionId', 'members', 'tasks', 'createdAt', 'resultingRevision'])
-const MAX_APPEND_ROWS = 64
-
-/**
- * Structural + bounded validation of the §2.3 append-only change records
- * (issue #294 slice 1). Declarations are exactly what the append accepted;
- * the load path must reject a malformed or unknown-key record instead of
- * silently trusting it (the durable audit fact reconstructs from this alone).
- */
-export function assertAppendChangesShape(value: unknown, path: string): void {
-  const changes = list(value, path, 'appendChanges')
-  if (changes.length > MAX_APPEND_ROWS) corrupt(path, 'appendChanges exceeds the limit')
-  const changeIds = new Set<string>()
-  changes.forEach((raw, index) => {
-    const at = `${path}.appendChanges[${index}]`
-    const change = record(raw, path, `appendChanges[${index}]`)
-    exactKeys(change, at, APPEND_CHANGE_KEYS)
-    const changeId = codePointText(change.changeId, 128, path, `appendChanges[${index}].changeId`)
-    if (changeIds.has(changeId)) corrupt(path, `appendChanges[${index}].changeId is not unique`)
-    changeIds.add(changeId)
-    codePointText(change.initiatedBySessionId, 256, path, `appendChanges[${index}].initiatedBySessionId`)
-    integer(change.createdAt, path, `appendChanges[${index}].createdAt`)
-    integer(change.resultingRevision, path, `appendChanges[${index}].resultingRevision`, 1)
-    const memberNames = new Set<string>()
-    const members = list(change.members, path, `appendChanges[${index}].members`)
-    if (members.length > MAX_PLAN_ROWS) corrupt(path, `appendChanges[${index}].members exceeds the limit`)
-    members.forEach((rawMember, memberIndex) => {
-      const member = record(rawMember, path, `appendChanges[${index}].members[${memberIndex}]`)
-      exactKeys(member, `${at}.members[${memberIndex}]`, PLAN_MEMBER_KEYS)
-      const name = codePointText(member.name, 64, path, `appendChanges[${index}].members[${memberIndex}].name`)
-      if (memberNames.has(name)) corrupt(path, `appendChanges[${index}].members[${memberIndex}].name is not unique`)
-      memberNames.add(name)
-      codePointText(member.role, 256, path, `appendChanges[${index}].members[${memberIndex}].role`)
-      if (member.llmProvider !== undefined) codePointText(member.llmProvider, 128, path, `appendChanges[${index}].members[${memberIndex}].llmProvider`)
-      if (member.model !== undefined) codePointText(member.model, 128, path, `appendChanges[${index}].members[${memberIndex}].model`)
-      if (member.reasoningEffort !== undefined) codePointText(member.reasoningEffort, 128, path, `appendChanges[${index}].members[${memberIndex}].reasoningEffort`)
-      if (member.denyTools !== undefined) {
-        const deny = stringList(member.denyTools, path, `appendChanges[${index}].members[${memberIndex}].denyTools`)
-        if (deny.length > MAX_PLAN_ROWS) corrupt(path, `appendChanges[${index}].members[${memberIndex}].denyTools exceeds the limit`)
-      }
-    })
-    const taskKeys = new Set<string>()
-    const tasks = list(change.tasks, path, `appendChanges[${index}].tasks`)
-    if (tasks.length > MAX_PLAN_ROWS) corrupt(path, `appendChanges[${index}].tasks exceeds the limit`)
-    tasks.forEach((rawTask, taskIndex) => {
-      const task = record(rawTask, path, `appendChanges[${index}].tasks[${taskIndex}]`)
-      exactKeys(task, `${at}.tasks[${taskIndex}]`, PLAN_TASK_KEYS)
-      const key = text(task.key, path, `appendChanges[${index}].tasks[${taskIndex}].key`)
-      if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(key)) corrupt(path, `appendChanges[${index}].tasks[${taskIndex}].key is malformed`)
-      if (taskKeys.has(key)) corrupt(path, `appendChanges[${index}].tasks[${taskIndex}].key is not unique`)
-      taskKeys.add(key)
-      codePointText(task.subject, 256, path, `appendChanges[${index}].tasks[${taskIndex}].subject`)
-      codePointText(task.description, 16_384, path, `appendChanges[${index}].tasks[${taskIndex}].description`)
-      if (task.acceptanceCriteria !== undefined) {
-        const criteria = stringList(task.acceptanceCriteria, path, `appendChanges[${index}].tasks[${taskIndex}].acceptanceCriteria`)
-        if (criteria.length > 16) corrupt(path, `appendChanges[${index}].tasks[${taskIndex}].acceptanceCriteria exceeds the limit`)
-      }
-      if (task.targetMemberName !== undefined) codePointText(task.targetMemberName, 64, path, `appendChanges[${index}].tasks[${taskIndex}].targetMemberName`)
-      if (task.writeScopes !== undefined) {
-        const scopes = stringList(task.writeScopes, path, `appendChanges[${index}].tasks[${taskIndex}].writeScopes`)
-        if (scopes.length > 16) corrupt(path, `appendChanges[${index}].tasks[${taskIndex}].writeScopes exceeds the limit`)
-      }
-    })
-    for (const rawTask of tasks) {
-      const task = record(rawTask, path, `appendChanges[${index}].tasks`)
-      const key = text(task.key, path, `appendChanges[${index}].tasks.key`)
-      const dependencies = task.dependencies === undefined ? [] : stringList(task.dependencies, path, `appendChanges[${index}].tasks.${key}.dependencies`)
-      if (dependencies.includes(key)) corrupt(path, `appendChanges[${index}] task "${key}" depends on itself`)
-      for (const dependency of dependencies) {
-        if (!taskKeys.has(dependency)) corrupt(path, `appendChanges[${index}] task "${key}" depends on unknown task "${dependency}"`)
-      }
-    }
-  })
-}
 /** Validate the complete persisted compatibility format before it gains domain authority. */
 export function assertTeamState(value: unknown, path: string): asserts value is TeamState {
   const team = record(value, path, 'root')
@@ -236,7 +161,6 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (route.reasoningEffort !== undefined) codePointText(route.reasoningEffort, 128, path, 'captainRoute.reasoningEffort')
   }
   if (team.planDraft !== undefined) assertPlanDraftShape(team.planDraft, path + '.planDraft')
-  if (team.appendChanges !== undefined) assertAppendChangesShape(team.appendChanges, path)
   if (team.discardReason !== undefined) codePointText(team.discardReason, 128, path, 'discardReason')
 
   if (team.publicGoal !== undefined) {
@@ -257,7 +181,6 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
       const previous = stringList(member.previousSessionIds, path, `members[${index}].previousSessionIds`)
       if (previous.length > 64) corrupt(path, 'member provisioning retry history exceeds 64')
     }
-    if (member.profileChangedAtRevision !== undefined) integer(member.profileChangedAtRevision, path, `members[${index}].profileChangedAtRevision`, 1)
     if (member.displayName !== undefined) codePointText(member.displayName, 128, path, `members[${index}].displayName`)
     if (member.profession !== undefined) codePointText(member.profession, 256, path, `members[${index}].profession`)
     if (member.personality !== undefined) codePointText(member.personality, 1024, path, `members[${index}].personality`)

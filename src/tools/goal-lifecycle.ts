@@ -18,7 +18,7 @@ const cancel = z.object({ request_id: z.string().min(1).max(256), task_id: z.str
 const cancelOutput = z.object({ task_id: z.string(), revision: z.number().int(), status: z.literal('cancelled'), replayed: z.boolean(),
   interruption: z.object({ state: z.enum(['not-needed', 'requested', 'skipped', 'failed', 'not-repeated']), reason: z.string().optional() }).strict() }).strict()
 
-/** SDK rc.2 exposes shape schemas; canonical Zod still enforces all bounds. */
+/** SDK alpha.2 exposes shape schemas; canonical Zod still enforces all bounds. */
 function adaptShape(node: Record<string, unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(node)) {

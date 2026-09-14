@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-swarm",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Durable multi-agent Team orchestration, review, budgets, memory, and scheduling for DeepSeek Harness",
   "type": "module",
@@ -14,6 +14,10 @@
     "./client": {
       "types": "./lib/types/client/plugin-entry.d.ts",
       "default": "./lib/client.js"
+    },
+    "./skills": {
+      "types": "./lib/types/skills/plugin.d.ts",
+      "default": "./lib/skills.mjs"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -119,6 +123,7 @@
     "@deepseek-ai/dsh-client-ui-subagent": "0.1.5-rc.2",
     "@deepseek-ai/dsh-jobs": "0.1.5-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-scope": "0.1.5-rc.2",
     "@deepseek-ai/dsh-session": "0.1.5-rc.2",
     "@deepseek-ai/dsh-session-persistence": "0.1.5-rc.2",
     "@deepseek-ai/dsh-session-title": "0.1.5-rc.2",

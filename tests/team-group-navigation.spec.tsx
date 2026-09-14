@@ -42,7 +42,7 @@ it('does not show a superseded member failure after a newer handoff or in anothe
     projection: { ...data.projection, roster: members.map(member => ({ ...data.projection.roster[0]!, name: member.name, phase: member.phase })) } } }
   let rejectFirst!: (error: Error) => void, finishSecond!: () => void
   const openMember = vi.fn((name: string) => name === 'first' ? new Promise<void>((_resolve, reject) => { rejectFirst = reject }) : new Promise<void>(resolve => { finishSecond = resolve }))
-  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true, 
+  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true,
     team: { subscribe: () => () => {}, getSnapshot: () => state },
     activePanelId: 'swarm.group', selectGroup: vi.fn(),
     openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember, refreshDirectory: vi.fn() }

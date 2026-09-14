@@ -171,7 +171,7 @@ it.each([
 })
 it('labels profile close, restores avatar focus and dismisses an unavailable member', async () => {
   const view = await chineseProfile('Retained history: 0 accepted tasks · 0 rejected attempts')
-  const close = document.querySelector<HTMLButtonElement>('[data-directory-card] header button')!
+  const close = document.querySelector<HTMLButtonElement>('[data-directory-card] header button[aria-label="关闭成员资料"]')!
   expect(close.getAttribute('aria-label')).toBe('关闭成员资料')
   await act(async () => { close.click() })
   expect(document.querySelector('[data-directory-card]')).toBeNull()

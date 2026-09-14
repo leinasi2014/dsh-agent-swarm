@@ -213,8 +213,7 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     team = await domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { pixelAvatarSvg: PIXEL })
     const member = team.members[0]!
     const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { biography: 'Develops dialogue.' })
-    // The profile-window CAS marker advances with every profile save.
-    expect(updated.members[0]).toEqual({ ...member, biography: 'Develops dialogue.', profileChangedAtRevision: expect.any(Number) })
+    expect(updated.members[0]).toEqual({ ...member, biography: 'Develops dialogue.' })
     await expect(domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { biography: 'stale' })).rejects.toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
     await expect(domain.setMemberProfile(scope, team.id, 'unknown-session', updated.revision, 'writer', { biography: 'forged' })).rejects.toBeDefined()
     let captain = await domain.setCaptainProfile(scope, team.id, 'captain-session', updated.revision, { displayName: 'Lead', profession: 'Editor' })
@@ -246,11 +245,7 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     const before = (await stack.store.list(scope))[0]!
     const introduced = await domain.setMemberProfile(scope, team.id, 'writer-session', before.revision, 'writer', { displayName: '林墨', profession: '编剧', personality: '仔细', biography: '我负责人物动机。' })
     const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', introduced.revision, 'writer', { pixelAvatarSvg: PIXEL })
-    expect(updated.members[0]).toEqual({
-      ...before.members[0],
-      displayName: '林墨', profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL,
-      profileChangedAtRevision: expect.any(Number),
-    })
+    expect(updated.members[0]).toEqual({ ...before.members[0], displayName: '林墨', profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
     expect(updated.members[1]).toEqual(before.members[1])
     await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'reviewer', { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
     await expect(domain.setCaptainProfile(scope, team.id, 'writer-session', updated.revision, { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
@@ -265,49 +260,6 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     await stack.close()
     stack = await openStorageStack(join(sandbox, 'storage'))
     expect((await stack.store.list(scope))[0]).toEqual(afterRemoval)
-  })
-
-  it('TEAM_REVISION_CONFLICT diagnostics carry expected/current and guidance, and unauthorized callers never see the current revision', async () => {
-    await open()
-    const team = await domain.createTeam(scope, 'captain-session', 'CAS diag', 'diagnose member conflicts')
-    await domain.provisionMember(scope, team.id, 'captain-session', {
-      name: 'writer', role: 'writer', sessionId: 'writer-session', provider: 'spawn',
-    })
-    await domain.provisionMember(scope, team.id, 'captain-session', {
-      name: 'reviewer', role: 'reviewer', sessionId: 'reviewer-session', provider: 'spawn',
-    })
-    await domain.settleMember(scope, team.id, 'writer-session', { active: true })
-    await domain.settleMember(scope, team.id, 'reviewer-session', { active: true })
-    const stale = (await stack.store.list(scope))[0]!.revision
-
-    // Winner first, then the authoritative snapshot BEFORE the stale CAS under test.
-    await domain.setMemberProfile(scope, team.id, 'writer-session', stale, 'writer', { biography: 'Fresh.' })
-    const beforeFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    const failure = await domain.setMemberProfile(scope, team.id, 'writer-session', stale, 'writer', { biography: 'Stale.' })
-      .then(() => { throw new Error('expected TEAM_REVISION_CONFLICT') }, error => error)
-    const afterFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    expect(afterFailure).toEqual(beforeFailure)
-    expect(failure).toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
-    expect(failure.message).toContain(`expected ${stale}, current ${beforeFailure.revision}`)
-    expect(failure.message).toContain('nothing was written')
-    expect(failure.message).toContain('agent_swarm_status')
-    expect(failure.message).toContain('once')
-    expect(failure.message).toContain('stop retrying')
-
-    // One legal retry after re-reading the fresh revision succeeds.
-    const retried = await domain.setMemberProfile(scope, team.id, 'writer-session', afterFailure.revision, 'writer', { biography: 'Retried.' })
-    expect(retried.members[0]?.biography).toBe('Retried.')
-
-    // A stranger (unknown session) fails on identity first and never learns the current revision.
-    const stranger = await domain.setMemberProfile(scope, team.id, 'stranger-session', retried.revision, 'writer', { biography: 'forged' })
-      .then(() => { throw new Error('expected rejection') }, error => error)
-    expect(stranger).toMatchObject({ code: 'TEAM_UNAUTHORIZED' })
-    expect(stranger.message).not.toContain('current')
-    // A real admitted member editing another member fails on role and also never learns current.
-    const peer = await domain.setMemberProfile(scope, team.id, retried.members[1]!.sessionId, retried.revision, 'writer', { biography: 'forged' })
-      .then(() => { throw new Error('expected rejection') }, error => error)
-    expect(peer).toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    expect(peer.message).not.toContain('current')
   })
 
   it('validates persisted identity fields via assertTeamState', () => {

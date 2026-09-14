@@ -244,6 +244,7 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
       await vi.waitFor(() => expect(adapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(2), { timeout: 10_000 })
       const resumed = first.ctx.agents.get(captainId)
       if (resumed !== undefined) await resumed.whenIdle()
+      await first.ctx.sessionPersistence.flush()
       const stored = await readPersistedSession(first.ctx.sessionPersistence, captainId, SIGNAL)
       expect(stored.events.filter(event => event.type === 'request/header').at(-1)?.data.header.config).toMatchObject(NEXT)
       if (mode === 'default') {
