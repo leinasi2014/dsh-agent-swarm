@@ -5,7 +5,7 @@
 
 Multi-agent teams for [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). Keep your main conversation focused on the goal while an independent **Captain** recruits members, coordinates tasks, and reviews their work.
 
-**[GitHub Releases](https://github.com/leinasi2014/dsh-agent-swarm/releases)** provides versioned installation packages and their accepted scope. This checkout adds continued member chat and private-note maintenance and recall to the earlier group-chat release. The full set of planned capabilities is still being developed. Install a published release tarball; this repository is `private: true` for npm publishing and has no public npm package.
+**[GitHub Releases](https://github.com/leinasi2014/dsh-agent-swarm/releases)** provides versioned installation packages and their accepted scope. This checkout prepares recovery patch **v0.1.5**, restoring the v0.1.3 feature baseline and the independently accepted task-cancellation dependency guard. Publication and fresh Profile acceptance are separate steps; check the release notes for the published version and verified scope. Install a published release tarball; this repository is `private: true` for npm publishing and has no public npm package.
 
 ## What you can do
 
@@ -83,6 +83,8 @@ Configure defaults under **Settings -> Plugins -> Agent Swarm**. Captains can ov
 
 ## Release boundaries and known limitations
 
+- **Recovery scope:** click a member card, open the profile, continue chatting in that member's official Session, and return to group chat. Public-message history and bounded message reads are restored, along with the optional Skills manager described below; it remains disabled in the default Bundle. The restored cancellation guard refuses to cancel a task while another non-cancelled task still depends on it.
+- **Follow-up work:** appending members to an existing team remains a later slice. The broader C2/A1/M3/G1 delivery is still incomplete; recovering files or accepting an individual fix does not establish completion of those workstreams.
 - **Member private chat:** v0.1.2 restored continued conversation in the same official member Session, including when its Captain is unavailable; see [issue #286](https://github.com/leinasi2014/dsh-agent-swarm/issues/286). The interface accepts text and image messages; real-model acceptance currently covers text. Ordinary file attachments are refused with the draft retained.
 - **v0.1.3 adds the optional Skills manager described below.** It is not enabled by the default Bundle and is absent from the v0.1.2 tarball. New selective-collaboration quotas remain under development. Check the installed package's [release notes](https://github.com/leinasi2014/dsh-agent-swarm/releases) for its accepted scope.
 - **Local execution is the delivered target.** Remote members, cross-process distributed coordination, a Canvas consumer, and automatic Skill evolution remain outside the delivered scope.
