@@ -42,21 +42,6 @@ export interface RecallNoteCandidate {
   readonly content: string
   readonly tags?: readonly string[]
   readonly applicability?: string
-  /** DECLARED quality metadata as stored (M3): model declaration tiers only. */
-  readonly claim?: {
-    readonly environment: string
-    readonly version: string
-    readonly outcome: 'reported_pass' | 'reported_failure' | 'declared_observed' | 'hypothesis'
-    readonly taskId?: string
-    readonly attemptId?: string
-  }
-  /** Host-observed provenance view for labeling (never a model-supplied fact). */
-  readonly provenance?: { readonly kind: 'unattributed' } | { readonly kind: 'task'; readonly taskId: string }
-  /** Host-witnessed result observation (M3 evidence segment): only the
-   *  result's own error identity reaches the label — deliberately NOT part
-   *  of the condition key (a witnessed pair is a provenance dimension, never
-   *  a scoring or duplicate-suppression factor). */
-  readonly observation?: { readonly isError: boolean }
 }
 
 /** The eligible in-progress Task whose text drives the selection. */
@@ -200,33 +185,11 @@ export function scoreRecallNote(note: RecallNoteCandidate, task: ReadonlySet<str
 }
 
 /**
- * M3 duplicate suppression key: the ACTUAL knowledge content and conditions —
- * exact content (NEVER folded to NFKC/lowercase, which would merge
- * code/case-meaningful knowledge), canonical tags, applicability, and the
- * declared environment/version. It deliberately EXCLUDES the declared
- * outcome and any task/attempt citation or Host source: restating the same
- * knowledge with a different self-rating or a different provenance is still
- * the same knowledge and must not re-occupy recall slots (repetition never
- * raises a verification tier). Knowledge under a DIFFERENT real condition
- * stays separate. On a key collision the NEWEST carrier is kept, carrying
- * its own claim conservatively — without any promotion.
- */
-function conditionKey(note: RecallNoteCandidate): string {
-  const conditions = note.claim === undefined
-    ? 'k:'
-    : `k:${note.claim.environment}\u0000${note.claim.version}`
-  return JSON.stringify([note.content, note.tags ?? [], note.applicability ?? '', conditions])
-}
-
-/**
  * Select at most {@link RECALL_MAX_NOTES} notes from the ordered candidate
  * list. Candidates arrive already filtered to active and ordered `headSeq`
  * desc / `memoryId` ascending and capped; this function re-applies the
- * deterministic full order (score desc, headSeq desc, memoryId asc), then
- * collapses same-knowledge/same-condition duplicates to their newest carrier
- * (repeated self-claims, restated self-ratings or re-cited provenance never
- * multiply recall slots), and returns NOTHING on zero hits — recent notes
- * are never a backfill.
+ * deterministic full order (score desc, headSeq desc, memoryId asc) and
+ * returns NOTHING on zero hits — recent notes are never a backfill.
  */
 export function selectRecallNotes(candidates: readonly RecallNoteCandidate[], task: RecallTaskText): RankedRecallNote[] {
   const taskSet = taskTokens(task)
@@ -239,13 +202,5 @@ export function selectRecallNotes(candidates: readonly RecallNoteCandidate[], ta
   scored.sort((left, right) => right.score - left.score
     || right.headSeq - left.headSeq
     || (left.memoryId < right.memoryId ? -1 : left.memoryId > right.memoryId ? 1 : 0))
-  const seen = new Set<string>()
-  const collapsed: RankedRecallNote[] = []
-  for (const note of scored) {
-    const key = conditionKey(note)
-    if (seen.has(key)) continue // same knowledge+conditions already carried by a NEWER headSeq
-    seen.add(key)
-    collapsed.push(note)
-  }
-  return collapsed.slice(0, RECALL_MAX_NOTES)
+  return scored.slice(0, RECALL_MAX_NOTES)
 }

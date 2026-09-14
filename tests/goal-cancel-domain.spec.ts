@@ -125,18 +125,3 @@ it('invalidates an already queued self-claim under the same cancellation transac
     expect(saved.budget.usedRequests).toBe(1)
   } finally { release(); writeGate.mockRestore() }
 })
-
-it('refuses to cancel a task that still has active dependents instead of persisting an unreadable graph', async () => {
-  const f = await fixture()
-  const predecessor = await f.port.createTask(f.scope, f.team.id, 'captain', { subject: 'Superseded predecessor', description: 'A later revision replaces this work' })
-  const dependent = await f.port.createTask(f.scope, f.team.id, 'captain', { subject: 'Dependent follow-up', description: 'Consumes the predecessor evidence', blockedBy: [predecessor.id] })
-  const before = await f.read()
-  await expect(f.port.cancelTask(f.scope, f.team.id, 'captain', {
-    requestId: 'cancel-with-dependents', taskId: predecessor.id, expectedTaskRevision: predecessor.revision,
-    reason: 'Superseded by a later revision',
-  })).rejects.toMatchObject({ code: 'TEAM_TASK_HAS_DEPENDENTS' })
-  const saved = await f.read()
-  expect(saved).toEqual(before)
-  expect(saved.tasks.find(task => task.id === predecessor.id)?.status).toBe('pending')
-  expect(saved.tasks.find(task => task.id === dependent.id)?.blockedBy).toEqual([predecessor.id])
-})

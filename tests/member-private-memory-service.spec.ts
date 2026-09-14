@@ -396,7 +396,7 @@ describe('MemberPrivateMemoryService maintenance provenance observation', () => 
     let observed: unknown
     const store = {
       appendMaintenance: vi.fn(async (_scope: unknown, _team: unknown, _member: unknown, input: { operationId: string; operation: 'add' | 'revise' | 'invalidate' | 'replace' }, provenance: unknown,
-        _witnessed: unknown, admit: (write: () => Promise<unknown>) => Promise<unknown>) => {
+        admit: (write: () => Promise<unknown>) => Promise<unknown>) => {
         observed = provenance
         return admit(() => Promise.resolve({
           receipt: { operationId: input.operationId, operation: input.operation, operationSeq: 1, resultMemoryId: 'private-memory-1', headSeq: 1, status: 'active' },

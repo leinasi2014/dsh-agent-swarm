@@ -8,8 +8,8 @@ This register contains current pinned identities and durable compatibility facts
 |---|---|
 | Repository | `https://github.com/deepseek-ai/deepseek-harness` |
 | Branch | `master` |
-| Release anchor | `fb2c4b9e698e30edb738bca4cf0618587db7d203` |
-| Release | `dsh@0.1.5-rc.2` |
+| Release anchor | `b2e3b2a0125854567a4a5fcba75782e42fe84901` |
+| Release | `dsh@0.1.5-alpha.2` |
 | Machine-readable baseline | `docs/OFFICIAL_BASELINE.json` |
 | Evidence checkout | repository-managed official sparse checkout |
 

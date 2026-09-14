@@ -113,33 +113,66 @@ it.each(['team', 'captain', 'viewer'] as const)('rejects mismatched %s identity 
   expect(f.showMembers).not.toHaveBeenCalled()
 })
 
-it.each(['teamId', 'rootSessionId'] as const)('disables member Session navigation when roster %s mismatches while keeping profile separate', async field => {
+it.each(['teamId', 'rootSessionId'] as const)('keeps one card button per member and disables the profile contact entry when roster %s mismatches', async field => {
   const state = teamState(), binding = state.data!.projection.binding, captain = binding.rootSessionId
   let value = { ...chatState(state), directory: { ...directoryPage(binding.teamId, [{ ...directoryEntry(captain, 'Captain'), role: 'captain' as const }, directoryEntry('member-1', 'Lin')]), binding, totalCount: 2 } }
   const chat = { getSnapshot: () => value, subscribe: () => () => {}, refreshDirectory: vi.fn(async () => {}) }
   const navigation = { refreshDirectory: vi.fn(), selectGroup: vi.fn(), openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember: vi.fn(async () => {}) }
   const bad = { ...state, data: { ...state.data!, captainMembers: { ...state.data!.captainMembers, binding: { ...binding, [field]: 'wrong' } } } }
   await render(<DirectoryMembers chat={chat as unknown as PublicChatController} dashboard={bad} navigation={navigation} t={t as never} />)
-  expect(document.querySelector<HTMLButtonElement>('[data-swarm-member-chat="member-1"]')!.disabled).toBe(true)
+  expect(document.querySelectorAll('[data-swarm-member-chat]')).toHaveLength(0)
   expect(document.querySelectorAll('[data-directory-member="member-1"]')).toHaveLength(1)
-  expect(document.querySelectorAll('[data-swarm-member-chat="member-1"]')).toHaveLength(1)
+  await act(async () => { document.querySelector<HTMLButtonElement>('[data-directory-member="member-1"]')!.click() })
+  const contact = document.querySelector<HTMLButtonElement>('[data-directory-card="member-1"] [data-directory-contact]')
+  expect(contact).not.toBeNull()
+  expect(contact!.disabled).toBe(true)
+  expect(contact!.getAttribute('title')).toBe(t('detail.contactDisabled'))
   expect(navigation.openMember).not.toHaveBeenCalled()
 })
 
-it('opens each fresh roster name in its precise official Session and leaves profile on a separate button', async () => {
+it('opens the profile on a single card click and messages each fresh roster name in its precise official Session from the profile header', async () => {
   const state = teamState(), binding = state.data!.projection.binding, captain = binding.rootSessionId
   const value = { ...chatState(state), directory: { ...directoryPage(binding.teamId, [{ ...directoryEntry(captain, 'Captain'), role: 'captain' as const }, directoryEntry('member-1', 'Lin')]), binding, totalCount: 2 } }
   const chat = { getSnapshot: () => value, subscribe: () => () => {}, refreshDirectory: vi.fn(async () => {}) }
   const navigation = { refreshDirectory: vi.fn(), selectGroup: vi.fn(), openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember: vi.fn(async () => {}) }
   await render(<DirectoryMembers chat={chat as unknown as PublicChatController} dashboard={state} navigation={navigation} t={t as never} />)
-  await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-chat="member-1"]')!.click() })
-  expect(navigation.openMember).toHaveBeenCalledExactlyOnceWith('writer', 'member-1')
-  await act(async () => { document.querySelector<HTMLButtonElement>(`[data-swarm-member-chat="${captain}"]`)!.click() })
-  expect(navigation.openCaptain).toHaveBeenCalledOnce()
-  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(document.querySelectorAll('[data-swarm-member-chat]')).toHaveLength(0)
+  expect(document.querySelectorAll('[data-directory-member="member-1"]')).toHaveLength(1)
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-directory-member="member-1"]')!.click() })
+  expect(navigation.openMember).not.toHaveBeenCalled()
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  const memberContact = document.querySelector<HTMLButtonElement>('[data-directory-card="member-1"] [data-directory-contact]')
+  expect(memberContact).not.toBeNull()
+  expect(memberContact!.disabled).toBe(false)
+  await act(async () => { memberContact!.click() })
+  expect(navigation.openMember).toHaveBeenCalledExactlyOnceWith('writer', 'member-1')
+  await act(async () => {})
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => { document.querySelector<HTMLButtonElement>(`[data-directory-member="${captain}"]`)!.click() })
+  const captainContact = document.querySelector<HTMLButtonElement>(`[data-directory-card="${captain}"] [data-directory-contact]`)!
+  expect(captainContact.disabled).toBe(false)
+  await act(async () => { captainContact!.click() })
+  expect(navigation.openCaptain).toHaveBeenCalledOnce()
   expect(navigation.openMember).toHaveBeenCalledOnce()
+  await act(async () => {})
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('disables the profile contact entry with the shared reason when the roster member is no longer active', async () => {
+  const state = teamState(), binding = state.data!.projection.binding
+  const value = { ...chatState(state), directory: { ...directoryPage(binding.teamId, [directoryEntry('member-1', 'Lin')]), binding, totalCount: 1 } }
+  const chat = { getSnapshot: () => value, subscribe: () => () => {}, refreshDirectory: vi.fn(async () => {}) }
+  const navigation = { refreshDirectory: vi.fn(), selectGroup: vi.fn(), openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember: vi.fn(async () => {}) }
+  const stale = { ...state, data: { ...state.data!, captainMembers: { ...state.data!.captainMembers, members: state.data!.captainMembers.members.map(row => ({ ...row, phase: 'failed' as const })) } } }
+  await render(<DirectoryMembers chat={chat as unknown as PublicChatController} dashboard={stale} navigation={navigation} t={t as never} />)
+  expect(document.querySelectorAll('[data-swarm-member-chat]')).toHaveLength(0)
+  await act(async () => { document.querySelector<HTMLButtonElement>('[data-directory-member="member-1"]')!.click() })
+  const contact = document.querySelector<HTMLButtonElement>('[data-directory-card="member-1"] [data-directory-contact]')
+  expect(contact).not.toBeNull()
+  expect(contact!.disabled).toBe(true)
+  expect(contact!.getAttribute('title')).toBe(t('detail.contactDisabled'))
+  await act(async () => { contact!.click() })
+  expect(navigation.openMember).not.toHaveBeenCalled()
 })
 
 it.each(['session-first', 'dashboard-first'] as const)('hides the old viewer conversation during %s handoff', async order => {

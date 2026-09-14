@@ -42,7 +42,6 @@ import {
   TeamMessageId,
   type TaskAttempt,
   type TeamAnnouncement,
-  type TeamAppendChange,
   type TeamBudget,
   type TeamLimits,
   type TeamMember,
@@ -171,11 +170,6 @@ export class TeamDomain implements TeamDomainPort {
   /** Plan-first: archive one staged draft without creating work (idempotent). */
   async discardStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number): Promise<TeamState> {
     return await plan.discardStagedPlan(this.deps, scope, teamId, expectedRevision)
-  }
-
-  /** Append-only change on an active Team (§2.3, issue #294 slice 1; stable change id, revision CAS). */
-  async appendActiveTeam(scope: TeamScope, teamId: TeamId, expectedRevision: number, change: TeamAppendChange): Promise<TeamState> {
-    return await plan.appendActiveTeam(this.deps, scope, teamId, expectedRevision, change)
   }
 
   async findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {

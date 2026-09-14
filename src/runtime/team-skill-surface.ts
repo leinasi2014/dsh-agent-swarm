@@ -9,6 +9,17 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tool-skill'
 import type { TeamState } from '../domain/types.js'
+import { RELEASE_PROVIDER_NAME, type SkillReleaseProvenance } from '../skills/release-authority.js'
+
+/** The optional module face the surface uses for loaded-attribution (the
+ * structural slice it consumes; the full module stays composition-optional). */
+interface SkillsModuleProvenanceFace {
+  readonly releases: {
+    loadProvenanceForMember: (memberSessionId: string, name: string) => Promise<SkillReleaseProvenance | undefined>
+    reassembleColdMember: (memberSessionId: string) => Promise<void>
+    advanceAtAttemptBoundary: (memberSessionId: string) => Promise<void>
+  }
+}
 
 /** Description bound applied to the restricted catalog entries (matches the host catalog). */
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
@@ -60,9 +71,19 @@ export class TeamSkillSurface {
   private readonly resolving = new WeakMap<Agent, Promise<void>>()
 
   private readonly skillsOf: () => SkillRegistry | undefined
+  /** Optional skills-management module face provided through its own inject
+   * (compositions without the module — S1-style CONTROL — never receive it;
+   * the reference clears when the inject fiber's effect unwinds). */
+  private skillsModule: SkillsModuleProvenanceFace | undefined
 
   constructor(private readonly ctx: Context, private readonly resolveTeam?: (agent: Agent) => Promise<TeamState | undefined>) {
     this.skillsOf = injectedSkills(ctx)
+    ctx.inject(['agentSwarmSkills'], moduleCtx => {
+      moduleCtx.effect(() => {
+        this.skillsModule = moduleCtx.get('agentSwarmSkills') as SkillsModuleProvenanceFace | undefined
+        return () => { this.skillsModule = undefined }
+      })
+    })
     // Enforce the allow-list at the EXECUTE boundary, independent of whether the
     // child's scoped shadow is still registered. (The scoped shadow supplies the
     // model schema; this guard supplies the denial after the child settles.)
@@ -137,6 +158,16 @@ export class TeamSkillSurface {
   private async resolvePolicy(agent: Agent): Promise<boolean> {
     const id = String(agent.id)
     if (this.ctx.agents.get(agent.id) !== agent) return false
+    // Cold continuation of an assigned member: durable pins outlive the
+    // assembly, so re-authorize and re-mint the member-scoped provider BEFORE
+    // this Agent's next Skill or model step — AWAITED, so the first request
+    // after a cold continuation never races a half-assembled layer. A LIVE
+    // member's version advances the same awaited way once its loads moved to
+    // the next real attempt (held bodies stay frozen inside their own
+    // attempt). Failures stay silent here — no pin, no registration; the load
+    // paths keep their own fail-closed checks.
+    await this.skillsModule?.releases.reassembleColdMember(id).catch(() => undefined)
+    await this.skillsModule?.releases.advanceAtAttemptBoundary(id).catch(() => undefined)
     const wasGoverned = this.governed.has(id)
     // A root may acquire its first Team after earlier unrelated requests.
     if (this.policies.has(id)) {
@@ -195,7 +226,7 @@ export class TeamSkillSurface {
     const allowed = new Set(entry ?? this.controlled.get(id) ?? [])
     this.governed.add(id)
     this.controlled.set(id, allowed)
-    removeTool = agent.ctx.tools.register(restrictedSkillTool(allowed, this.skillsOf))
+    removeTool = agent.ctx.tools.register(restrictedSkillTool(allowed, this.skillsOf, (targetAgent, skillName, provider) => this.releaseProvenance(targetAgent, skillName, provider)))
     removeSection = agent.ctx.systemPrompt.section({
       name: 'agent-swarm:team-skills', order: 121,
       text: allowed.size === 0
@@ -240,6 +271,17 @@ export class TeamSkillSurface {
     this.policies.delete(childId)
   }
 
+  /** Loaded-attribution resolution (docs04 §loaded), called at the exact
+   * moment a body enters this member's real request: only an approved
+   * release served by the module's own provider resolves a full-manifest
+   * record; raw sources and compositions without the skills module stamp
+   * nothing (P1-style CONTROL stays byte-identical). */
+  private async releaseProvenance(agent: Agent | undefined, skillName: string, provider: string): Promise<SkillReleaseProvenance | undefined> {
+    if (agent === undefined || provider !== RELEASE_PROVIDER_NAME) return undefined
+    if (this.skillsModule === undefined) return undefined
+    return await this.skillsModule.releases.loadProvenanceForMember(String(agent.id), skillName)
+  }
+
   /** Inject the user-gesture skill-invocations the Team may load. */
   private async allowedSkillInvocations(
     agent: Agent,
@@ -251,11 +293,21 @@ export class TeamSkillSurface {
     const injections: UserMessage[] = []
     for (const name of names) {
       if (!allowed.has(name)) continue
-      const skill = await this.ctx.skills.get(name, { cwd: agent.session.header.cwd, signal, scope: agent })
+      // Inject-safe lookup (same seam as the guarded tool): a host without a
+      // Skill registry fails closed by skipping, never by a required-property
+      // access that the surrounding composition may not provide.
+      const skills = this.skillsOf()
+      if (skills === undefined) continue
+      const skill = await skills.get(name, { cwd: agent.session.header.cwd, signal, scope: agent })
       if (skill === undefined || !isUserInvocable(skill)) continue
+      const provenance = await this.releaseProvenance(agent, name, skill.provider)
       injections.push(createUserMessage({
         content: [{ type: 'text', text: renderSkillContent(skill) }],
-        source: { kind: 'skill-invocation', name, form: 'instructions' },
+        // Loaded-attribution (docs04 §loaded): a source-extension field rides
+        // this official durable record (the same channel `swarm-gesture.goal`
+        // already uses in production), so the member's own Session keeps the
+        // exact release/manifest binding of this real load.
+        source: { kind: 'skill-invocation', name, form: 'instructions', ...(provenance === undefined ? {} : { release: provenance }) } as UserMessage['source'],
       }))
     }
     return injections
@@ -280,7 +332,16 @@ export class TeamSkillSurface {
   }
 }
 
-function restrictedSkillTool(allowed: ReadonlySet<string>, skillsOf: () => SkillRegistry | undefined) {
+// The restricted tool's body block is the OFFICIAL rendering, byte-for-byte;
+// an approved release additionally renders ONE separate provenance text block
+// (docs04 §loaded), so the tool's own durable tool-result record carries the
+// release attribution without touching the body block. Raw sources receive
+// exactly the official block only.
+function restrictedSkillTool(
+  allowed: ReadonlySet<string>,
+  skillsOf: () => SkillRegistry | undefined,
+  provenanceFor: (agent: Agent | undefined, skillName: string, provider: string) => Promise<SkillReleaseProvenance | undefined>,
+) {
   return defineTool({
     name: 'skill',
     description: 'Load the full instructions for one Skill that this Team is allowed to use.',
@@ -307,9 +368,28 @@ function restrictedSkillTool(allowed: ReadonlySet<string>, skillsOf: () => Skill
             },
           ] },
           content: { type: 'string', required: true },
+          provenance: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              teamId: { type: 'string', required: true }, memberSessionId: { type: 'string', required: true },
+              name: { type: 'string', required: true }, version: { type: 'string', required: true },
+              provider: { type: 'string', required: true }, locator: { type: 'string', required: true },
+              manifestHash: { type: 'string', required: true }, contentSha256: { type: 'string', required: true },
+              resourcesSha256: { type: 'string', required: true }, applicability: { type: 'string', required: true },
+              verification: { type: 'string', required: true }, approvedBy: { type: 'string', required: true },
+              approvedAt: { type: 'number', required: true }, taskId: { type: 'string' }, attemptId: { type: 'string' },
+            },
+          },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
+      render: (_args, value) => {
+        const blocks = [{ type: 'text' as const, text: renderSkillContent(value) }]
+        const provenance = (value as { provenance?: unknown }).provenance
+        if (typeof provenance === 'object' && provenance !== null) {
+          blocks.push({ type: 'text' as const, text: `<release_provenance>${JSON.stringify(provenance)}</release_provenance>` })
+        }
+        return blocks
+      },
     },
     async execute(args, exec) {
       if (!isSkillName(args.name)) throw new Error(`invalid Skill name "${args.name}"`)
@@ -319,11 +399,13 @@ function restrictedSkillTool(allowed: ReadonlySet<string>, skillsOf: () => Skill
       if (skills === undefined) throw new Error('Skill registry is unavailable in this host; the Team allow-list cannot be served')
       const skill = await skills.get(args.name, lookup)
       if (skill === undefined || !isModelInvocable(skill)) throw new Error(`Skill "${args.name}" is unavailable for model invocation`)
+      const provenance = await provenanceFor(exec.agent, skill.name, skill.provider)
       return {
         name: skill.name,
         provider: skill.provider,
         ...(skill.resourceBase !== undefined ? { resourceBase: { ...skill.resourceBase } } : {}),
         content: skill.content,
+        ...(provenance === undefined ? {} : { provenance }),
       }
     },
     presentCall(args) { return { card: 'generic', title: `Load Skill ${args.name}`, kind: 'read', rawInput: args.name } },

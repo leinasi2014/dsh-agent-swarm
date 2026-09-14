@@ -61,15 +61,16 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     const requestTools = ['agent_swarm_list_work_requests', 'agent_swarm_resolve_work_request', 'agent_swarm_submit_work_request']
     const goalTools = ['agent_swarm_get_goal', 'agent_swarm_save_goal', 'agent_swarm_control_goal', 'agent_swarm_coordinate_goal', 'agent_swarm_cancel_task']
     const postTools = ['agent_swarm_public_post']
+    const readTools = ['agent_swarm_public_history', 'agent_swarm_public_message']
     const maintenanceTools = ['agent_swarm_maintain_private_memory']
-    const historicalAllow = DEFAULT_TOOL_POLICY.allow!.slice(0, -publicTools.length - requestTools.length - goalTools.length - postTools.length - maintenanceTools.length)
+    const historicalAllow = DEFAULT_TOOL_POLICY.allow!.slice(0, -publicTools.length - requestTools.length - goalTools.length - postTools.length - readTools.length - maintenanceTools.length)
     expect(historicalAllow.slice(-3)).toEqual([
       'agent_swarm_list_members',
       'agent_swarm_add_private_memory',
       'agent_swarm_list_private_memory',
     ])
-    expect(DEFAULT_TOOL_POLICY.allow!.slice(historicalAllow.length)).toEqual([...publicTools, ...requestTools, ...goalTools, ...postTools, ...maintenanceTools])
-    for (const name of [...publicTools, ...postTools, ...maintenanceTools]) {
+    expect(DEFAULT_TOOL_POLICY.allow!.slice(historicalAllow.length)).toEqual([...publicTools, ...requestTools, ...goalTools, ...postTools, ...readTools, ...maintenanceTools])
+    for (const name of [...publicTools, ...postTools, ...readTools, ...maintenanceTools]) {
       expect(DEFAULT_TOOL_POLICY.allow).toContain(name)
       expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, captainTurn())).toBe('allow')
       expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, { ...captainTurn(), callerRole: 'delegated-member' })).toBe('allow')

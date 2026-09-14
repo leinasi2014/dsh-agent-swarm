@@ -35,7 +35,7 @@ async function entryFixture() {
     remote: {}, settingsScope: { bind: () => ({}) }, layout: { selectPanel },
     sidebarRight: { openTabIn: vi.fn(), isExpanded: () => false, toggleExpanded: vi.fn() }, sidebarRightTabs: { register: () => () => {} },
     locale: { bind: () => t, register: () => () => {}, getLocale: () => ({ active: 'en' }) },
-    effect: (callback: () => (() => void) | void, label: string) => { if (label.includes('surface coordinator') || label.includes('Sidebar navigation')) effects.push(callback) }, on: () => {},
+    effect: (callback: () => (() => void) | void, label: string) => { if (label.includes('surface coordinator') || label.includes('Sidebar navigation')) effects.push(callback) }, on: () => () => {},
   }
   apply(ctx as never)
   const panel = entries.find(entry => entry.name === 'sidebar.right.pane.tab')!.inject!()

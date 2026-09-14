@@ -71,6 +71,8 @@ documentation:
   schemaVersion: 1
   registry: docs/governance/document-registry.yaml
   layoutPolicy: adapt-existing
+  primaryPublicLanguage: en
+  existingArchitectureLanguage: preserve-unless-translation-in-scope
   sharedAuthorityWriterCount: 1
   checks: pnpm-verify-governance
   liveStatusInCommittedMarkdown: forbidden

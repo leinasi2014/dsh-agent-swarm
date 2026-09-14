@@ -130,15 +130,6 @@ documents:
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: capability-ownership-or-service-boundary-change
     validation: pnpm-verify-policy
-  - documentId: official-interface-architecture
-    path: docs/12-official-interface-architecture.md
-    role: stable-authority
-    subject: architecture
-    writeMode: human
-    accountableOwner: architecture-owner
-    mutationAuthority: expected-target-reviewed-candidate
-    updateTriggers: official-seam-or-plugin-coupling-change
-    validation: pnpm-verify-policy
   - documentId: core-protocol
     path: docs/04-core-protocol.md
     role: stable-authority
@@ -256,7 +247,7 @@ domains:
   product-architecture:
     accountableOwner: architecture-owner
     writerCount: 1
-    paths: docs/00-vision.md|docs/02-reference-analysis.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/05-jiuwen-feature-mapping.md|docs/06-workspace-distributed.md|docs/10-team-ui-layout.md|docs/12-official-interface-architecture.md
+    paths: docs/00-vision.md|docs/02-reference-analysis.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/05-jiuwen-feature-mapping.md|docs/06-workspace-distributed.md|docs/10-team-ui-layout.md
 
 checks:
   entryPoint: pnpm-verify-policy

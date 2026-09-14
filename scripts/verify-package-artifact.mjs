@@ -19,6 +19,8 @@ for (const [label, relativePath] of [
   ['exports[.].types', pkg.exports?.['.']?.types],
   ['exports[./client].default', pkg.exports?.['./client']?.default],
   ['exports[./client].types', pkg.exports?.['./client']?.types],
+  ['exports[./skills].default', pkg.exports?.['./skills']?.default],
+  ['exports[./skills].types', pkg.exports?.['./skills']?.types],
   ['bundle patch', pkg.dsh?.bundle?.patch],
 ]) {
   if (typeof relativePath !== 'string') {
@@ -57,7 +59,7 @@ if (failures.length === 0) {
       '@deepseek-ai/dsh-client-ui-primitives': {
         Button() {}, Pill() {}, StateDot() {}, IconUserOutline16() {}, IconCloseOutline16() {}, IconRefreshOutline16() {},
       },
-      // The pinned rc.2 client/web seed table provides this singleton.
+      // The pinned alpha.2 client/web seed table provides this singleton.
       // Member profiles use its portal; every other external remains rejected.
       'react-dom': { createPortal() {} },
     }

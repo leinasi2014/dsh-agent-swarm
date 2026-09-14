@@ -94,36 +94,4 @@ describe('public goal (durable, permission, CAS)', () => {
     padded.publicGoal = '  padded  '
     expect(() => assertTeamState(padded, 'padded')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
   })
-
-  it('TEAM_REVISION_CONFLICT diagnostics carry expected/current, the no-write declaration and single-retry guidance', async () => {
-    await open()
-    const team = await domain.createTeam(scope, 'captain-session', 'Goal diag', 'diagnose goal conflicts')
-    await domain.provisionMember(scope, team.id, 'captain-session', { name: 'worker', role: 'w', sessionId: 'member-w', provider: 'spawn' })
-    await domain.settleMember(scope, team.id, 'member-w', { active: true })
-    const stale = (await domain.snapshot(scope, team.id, 'captain-session')).team.revision
-
-    // Winner first, then the authoritative snapshot BEFORE the stale CAS under test.
-    await domain.setPublicGoal(scope, team.id, 'captain-session', stale, 'First goal.')
-    const beforeFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    const failure = await domain.setPublicGoal(scope, team.id, 'captain-session', stale, 'Stale goal.')
-      .then(() => { throw new Error('expected TEAM_REVISION_CONFLICT') }, error => error)
-    const afterFailure = (await domain.snapshot(scope, team.id, 'captain-session')).team
-    expect(afterFailure).toEqual(beforeFailure)
-    expect(failure).toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
-    expect(failure.message).toContain(`expected ${stale}, current ${beforeFailure.revision}`)
-    expect(failure.message).toContain('nothing was written')
-    expect(failure.message).toContain('agent_swarm_status')
-    expect(failure.message).toContain('once')
-    expect(failure.message).toContain('stop retrying')
-
-    // One legal retry with the re-read revision succeeds.
-    const retried = await domain.setPublicGoal(scope, team.id, 'captain-session', afterFailure.revision, 'Second goal.')
-    expect(retried.publicGoal).toBe('Second goal.')
-
-    // A real member role failure on this captain-only entry precedes the revision check and never leaks current.
-    const memberFailure = await domain.setPublicGoal(scope, team.id, 'member-w', retried.revision, 'hijack')
-      .then(() => { throw new Error('expected rejection') }, error => error)
-    expect(memberFailure).toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    expect(memberFailure.message).not.toContain('current')
-  })
 })

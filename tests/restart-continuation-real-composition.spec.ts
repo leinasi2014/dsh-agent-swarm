@@ -115,11 +115,6 @@ function userTexts(events: readonly SessionEvent[]): string[] {
   })
 }
 
-const profileMember = (phase: TeamMember['phase']) => ({
-  name: 'profile-member', role: 'Profile fixture', phase, createdAt: 1,
-  sessionId: 'member-profile-session', provider: 'spawn',
-}) as TeamMember
-
 describe('real restart continuation over the current Team authority', () => {
   const roots: string[] = []
 
@@ -539,21 +534,25 @@ describe('real restart continuation over the current Team authority', () => {
       sessionPersistence: { open: vi.fn(async () => { throw missing }) },
     } as unknown as Context)
     const team = { id: 'member-profile-team', captainSessionId: 'member-profile-captain' } as TeamState
-    await expect(reader.list(team, [profileMember('provisioning')], SIGNAL)).resolves.toMatchObject([
+    const member = (phase: TeamMember['phase']) => ({
+      name: 'profile-member', role: 'Profile fixture', phase, createdAt: 1,
+      sessionId: 'member-profile-session', provider: 'spawn',
+    }) as TeamMember
+    await expect(reader.list(team, [member('provisioning')], SIGNAL)).resolves.toMatchObject([
       { profileState: 'pending', profileReason: 'provisioning', runtimeProvider: 'spawn' },
     ])
-    await expect(reader.list(team, [profileMember('failed')], SIGNAL)).resolves.toMatchObject([
+    await expect(reader.list(team, [member('failed')], SIGNAL)).resolves.toMatchObject([
       { profileState: 'unavailable', profileReason: 'startup_failed', runtimeProvider: 'spawn' },
     ])
-    await expect(reader.list(team, [profileMember('removed')], SIGNAL)).resolves.toMatchObject([
+    await expect(reader.list(team, [member('removed')], SIGNAL)).resolves.toMatchObject([
       { profileState: 'unavailable', profileReason: 'removed', runtimeProvider: 'spawn' },
     ])
-    await expect(reader.list(team, [profileMember('active')], SIGNAL)).resolves.toMatchObject([
+    await expect(reader.list(team, [member('active')], SIGNAL)).resolves.toMatchObject([
       { profileState: 'invalid', profileReason: 'active_session_missing', runtimeProvider: 'spawn' },
     ])
     const aborted = new AbortController()
     aborted.abort()
-    await expect(reader.list(team, [profileMember('active')], aborted.signal))
+    await expect(reader.list(team, [member('active')], aborted.signal))
       .rejects.toMatchObject({ code: 'TEAM_MEMBER_PROFILE_ABORTED' })
   })
 })

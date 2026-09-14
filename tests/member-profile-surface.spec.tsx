@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { render, tZh } from './helpers/dashboard-ui.js'
+import { ready, render, tZh } from './helpers/dashboard-ui.js'
 import { act, type ComponentProps } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { profileBrowserScripts } from './helpers/profile-primitives.js'
 import { profileCss } from '../src/client/MemberProfileContent.js'
 import { DirectoryMembers } from '../src/client/DirectoryMembers.js'
 import type { PublicChatController, PublicChatState } from '../src/client/public-chat-controller.js'
+import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { TeamNavigationCallbacks } from '../src/client/TeamGroupNavigation.js'
 import { directoryEntry, directoryPage } from './helpers/public-directory.js'
 import { chromium } from 'playwright'
 
@@ -93,7 +95,7 @@ it('uses the official modal on a narrow viewport and traps focus only there', as
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
   await fixture(); await click(avatar())
   expect(card()?.closest('[role=dialog]')?.getAttribute('aria-modal')).toBe('true')
-  const close = card()!.querySelector<HTMLButtonElement>('header button')!
+  const close = card()!.querySelector<HTMLButtonElement>(`header button[aria-label="${tZh('directory.closeProfile')}"]`)!
   await act(async () => { close.focus() }); await key(close, 'Tab', true)
   const last = document.activeElement as HTMLElement
   expect(last.tagName).toBe('SUMMARY'); await key(last, 'Tab')
@@ -124,6 +126,120 @@ it('retains the member through resize and refresh, but closes on team change or 
   expect(card()).toBeNull()
   await click(avatar()); await f.update({ directory: { ...f.state().directory!, entries: [] } })
   expect(card()).toBeNull()
+})
+
+const contact = (): HTMLButtonElement => card()!.querySelector<HTMLButtonElement>('header [data-directory-contact]')!
+
+function deferred(): { promise: Promise<void>; resolve: () => void; reject: (reason: unknown) => void } {
+  let resolve!: () => void, reject!: (reason: unknown) => void
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+  promise.catch(() => undefined)
+  return { promise, resolve, reject }
+}
+
+/** The redesigned entry: one card click opens the profile; the fixed header is the only Chat contact. */
+async function navFixture(options: { memberBInRoster?: boolean } = {}) {
+  const page = directoryPage('a', [directoryEntry(), directoryEntry('member-b', '另一位')])
+  let state: PublicChatState = { selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 }, entries: [], history: undefined, draft: { text: '保留草稿', tokens: [], version: 1 }, pending: false, legacyUpgrade: false, draftStatus: 'ready', draftBlobs: {}, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
+  const listeners = new Set<() => void>()
+  const chat = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
+  const data = ready.data!
+  const rosterRow = (name: string, sessionId: string) => ({ ...data.captainMembers.members[0]!, name, displayName: name, phase: 'active' as const, sessionId })
+  const dashboard: TeamDashboardState = { ...ready, targetSessionId: 'viewer', data: { ...data,
+    teams: { ...data.teams, binding: { ...data.teams.binding, rootSessionId: 'viewer' } },
+    captainMembers: { ...data.captainMembers, binding: { ...data.captainMembers.binding, teamId: 'a', rootSessionId: 'captain-a' },
+      members: options.memberBInRoster === false ? [rosterRow('roster-a', 'member-a')] : [rosterRow('roster-a', 'member-a'), rosterRow('roster-b', 'member-b')] } } }
+  let current = deferred()
+  const navigation = { refreshDirectory: vi.fn(), selectGroup: vi.fn(), openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember: vi.fn(() => current.promise) } as unknown as TeamNavigationCallbacks
+  await render(<DirectoryMembers chat={chat} dashboard={dashboard} navigation={navigation} t={tZh as ComponentProps<typeof DirectoryMembers>['t']} />)
+  return { navigation,
+    nextCall: () => { current = deferred(); return current },
+    state: () => state,
+    update: async (patch: Partial<PublicChatState>) => { await act(async () => { state = { ...state, ...patch }; listeners.forEach(listener => { listener() }) }) } }
+}
+
+it('messages the exact member Session from the fixed profile header, blocks re-entry while opening, and closes only on success', async () => {
+  const f = await navFixture(); await click(avatar())
+  const button = contact()
+  expect(button.textContent).toBe('发送消息'); expect(button.disabled).toBe(false); expect(button.getAttribute('aria-busy')).toBeNull()
+  const call = f.nextCall()
+  await click(button)
+  expect(f.navigation.openMember).toHaveBeenCalledExactlyOnceWith('roster-a', 'member-a')
+  expect(contact().textContent).toBe('正在打开聊天…'); expect(contact().disabled).toBe(true); expect(contact().getAttribute('aria-busy')).toBe('true')
+  await click(contact())
+  expect(f.navigation.openMember).toHaveBeenCalledOnce()
+  expect(card()).not.toBeNull()
+  await act(async () => { call.resolve() })
+  expect(card()).toBeNull(); expect(document.activeElement).toBe(document.body)
+})
+
+it('keeps the profile open and surfaces the rejection reason when official Chat navigation fails', async () => {
+  const f = await navFixture(); await click(avatar())
+  const call = f.nextCall()
+  await click(contact())
+  await act(async () => { call.reject(new Error('官方会话暂时无法打开')) })
+  expect(card()).not.toBeNull()
+  expect(card()!.querySelector('[data-directory-contact-error]')?.textContent).toContain('官方会话暂时无法打开')
+  expect(contact().disabled).toBe(false); expect(contact().textContent).toBe('发送消息')
+})
+
+it('disables the contact entry with the shared reason when navigation is absent', async () => {
+  await fixture(); await click(avatar())
+  const button = contact()
+  expect(button.disabled).toBe(true)
+  expect(button.getAttribute('title')).toBe(tZh('detail.contactDisabled'))
+  await click(button)
+  expect(card()).not.toBeNull()
+})
+
+it('disables the contact entry with the shared reason when the roster member is unavailable', async () => {
+  const f = await navFixture({ memberBInRoster: false })
+  await click(avatar('member-b'))
+  const button = contact()
+  expect(button.disabled).toBe(true)
+  expect(button.getAttribute('title')).toBe(tZh('detail.contactDisabled'))
+  await click(avatar('member-a'))
+  expect(contact().disabled).toBe(false); expect(contact().textContent).toBe('发送消息')
+  expect(f.navigation.openMember).not.toHaveBeenCalled()
+})
+
+it('starts a clean contact state on the new member and a late success closes nothing', async () => {
+  const f = await navFixture()
+  await click(avatar('member-a'))
+  const stale = f.nextCall()
+  await click(contact())
+  await click(avatar('member-b'))
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-b')
+  expect(contact().textContent).toBe('发送消息'); expect(contact().disabled).toBe(false); expect(contact().getAttribute('aria-busy')).toBeNull()
+  await act(async () => { stale.resolve() })
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-b')
+})
+
+it('never surfaces a late navigation failure after a member switch, team change, or member removal', async () => {
+  const f = await navFixture()
+  await click(avatar('member-a'))
+  const switched = f.nextCall(); await click(contact())
+  await click(avatar('member-b'))
+  await act(async () => { switched.reject(new Error('迟到失败甲')) })
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-b')
+  expect(card()!.textContent).not.toContain('迟到失败甲')
+  const changed = f.nextCall(); await click(contact())
+  await f.update({ selection: { team: 'other', captain: 'captain-other', key: 'other-team', viewer: 'other-viewer', revision: 1 } })
+  expect(card()).toBeNull()
+  await act(async () => { changed.reject(new Error('迟到失败乙')) })
+  expect(document.querySelector('[data-directory-contact-error]')).toBeNull()
+  expect(document.body.textContent).not.toContain('迟到失败乙')
+  await f.update({ selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 } })
+  await click(avatar('member-a'))
+  const removed = f.nextCall(); await click(contact())
+  await f.update({ directory: { ...f.state().directory!, entries: [directoryEntry('member-b', '另一位')] } })
+  expect(card()).toBeNull()
+  await act(async () => { removed.reject(new Error('迟到失败丙')) })
+  expect(document.querySelector('[data-directory-contact-error]')).toBeNull()
+  await click(avatar('member-b'))
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-b')
+  expect(card()!.textContent).not.toContain('迟到失败丙')
+  expect(contact().disabled).toBe(false); expect(contact().textContent).toBe('发送消息')
 })
 
 it('runs installed anchoring above/right-clamped near the viewport edge and closes when the anchor scrolls away', async () => {

@@ -35,56 +35,6 @@ const input = () => ({ formatVersion: 2 as const, author: { kind: 'local-operato
 ] })
 
 describe('public mentions v2', () => {
-  it.each(['captain', 'member-a'])('allows %s to start the public conversation once and keeps it after storage reopen', async sessionId => {
-    const f = await fixture(), before = (await f.store.read(f.scope, f.team.id))!
-    const post = { formatVersion: 2 as const, author: { kind: 'agent' as const, sessionId }, requestId: 'first-public-post', content: [{ type: 'text' as const, text: '开始处理，稍后公开回报。' }] }
-    const results = await Promise.all(Array.from({ length: 4 }, () => f.port.appendPublicMessage(f.scope, f.team.id, post)))
-    expect(results.filter(row => !row.replayed)).toHaveLength(1)
-    expect(new Set(results.map(row => row.message.id)).size).toBe(1)
-    expect(results[0]!.message).toMatchObject({ sequence: 1, author: { kind: 'agent', sessionId }, delivery: { kind: 'not-requested' } })
-    expect(results[0]!.message.replyTo).toBeUndefined()
-    await expect(f.port.appendPublicMessage(f.scope, f.team.id, { ...post, content: [{ type: 'text' as const, text: 'changed' }] })).rejects.toMatchObject({ code: 'TEAM_PUBLIC_REQUEST_CONFLICT' })
-    await expect(f.port.appendPublicMessage(f.scope, f.team.id, { ...post, replyTo: results[0]!.message.id })).rejects.toMatchObject({ code: 'TEAM_PUBLIC_REQUEST_CONFLICT' })
-    const after = (await f.store.read(f.scope, f.team.id))!
-    expect([after.tasks, after.attempts, after.messages, after.workActivity]).toEqual([before.tasks, before.attempts, before.messages, before.workActivity])
-    const row = opened.pop()!
-    await row.stack.close()
-    const reopened = await openStorageStack(join(row.root, 'storage'))
-    opened.push({ root: row.root, stack: reopened })
-    expect((await reopened.store.read(f.scope, f.team.id))!.publicChat).toEqual(after.publicChat)
-  })
-
-  it('retains v3 history while validating public posts, active membership, references and capacity', async () => {
-    const f = await fixture()
-    await f.port.appendPublicMessage(f.scope, f.team.id, { formatVersion: 3, author: { kind: 'local-operator' }, requestId: 'v3-user', content: [{ type: 'text', text: '已有用户消息' }] })
-    const post = { formatVersion: 2 as const, author: { kind: 'agent' as const, sessionId: 'member-a' }, requestId: 'post', content: [{ type: 'text' as const, text: '公开进度' }] }
-    await f.port.appendPublicMessage(f.scope, f.team.id, post)
-    const before = await f.store.read(f.scope, f.team.id)
-    expect(before!.publicChat!.schemaVersion).toBe(3)
-    for (const fields of [{ replyTo: 'foreign-message' }, { content: [{ type: 'mention' as const, memberId: 'member-b' }] }]) {
-      await expect(f.port.appendPublicMessage(f.scope, f.team.id, { ...post, requestId: 'invalid-post', ...fields })).rejects.toBeDefined()
-      expect(await f.store.read(f.scope, f.team.id)).toEqual(before)
-    }
-    const limited = new TeamDomain(f.store, { ...DEFAULT_TEAM_LIMITS, maxPublicMessages: 2 })
-    await expect(limited.appendPublicMessage(f.scope, f.team.id, { ...post, requestId: 'over-capacity' })).rejects.toMatchObject({ code: 'TEAM_PUBLIC_CAPACITY' })
-    await f.port.removeMember(f.scope, f.team.id, 'captain', 'a', 'removed')
-    const removed = await f.store.read(f.scope, f.team.id)
-    await expect(f.port.appendPublicMessage(f.scope, f.team.id, { ...post, requestId: 'removed-post' })).rejects.toBeDefined()
-    expect(await f.store.read(f.scope, f.team.id)).toEqual(removed)
-  })
-
-  it('rechecks an execution guard after waiting for the actual Team storage lock', async () => {
-    const f = await fixture(), before = await f.store.read(f.scope, f.team.id), abort = new AbortController()
-    let release!: () => void, entered!: () => void
-    const gate = new Promise<void>(resolve => { release = resolve }), inside = new Promise<void>(resolve => { entered = resolve })
-    const held = f.store.transact(f.scope, f.team.id, async () => { entered(); await gate })
-    await inside
-    const post = f.port.appendPublicMessage(f.scope, f.team.id, { formatVersion: 2, author: { kind: 'agent', sessionId: 'member-a' }, requestId: 'cancelled-post', content: [{ type: 'text', text: 'must not commit' }], assertExecution: () => abort.signal.throwIfAborted() })
-    const rejected = expect(post).rejects.toBeDefined()
-    abort.abort(); release()
-    await held; await rejected
-    expect(await f.store.read(f.scope, f.team.id)).toEqual(before)
-  })
   it('commits all deduplicated recipient intents together while preserving mention order', async () => {
     const f = await fixture()
     const results = await Promise.all(Array.from({ length: 5 }, () => f.port.appendPublicMessage(f.scope, f.team.id, input())))

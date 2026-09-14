@@ -21,9 +21,8 @@ import {
   acceptanceIsolation, appendLedgerRecord, controlRootLayout, readJsonFile,
   rpcCall, sha256File, verifyArtifactAgainstManifest, verifyVerdict, writeJsonFile,
 } from './lib.mjs'
-import { bootPlane, git, run, stopPlane, waitPortFree, withDetachedWorktree } from './runner.mjs'
+import { bootPlane, run, stopPlane, waitPortFree, withDetachedWorktree } from './runner.mjs'
 import { FLOOR_LANES, FULL_LANES } from './freeze.mjs'
-import { openCandidateSession } from './candidate-session.mjs'
 
 function parseArgs(argv) {
   const args = { lanes: 'full', port: 47930, profile: 'web' }
@@ -40,7 +39,6 @@ function parseArgs(argv) {
     else if (argument === '--cli') args.cli = resolve(next())
     else if (argument === '--lanes') args.lanes = next()
     else if (argument === '--port') args.port = Number(next())
-    else if (argument === '--candidate-account-root') args.candidateAccountRoot = resolve(next())
     else throw new Error(`unknown argument ${argument}`)
   }
   for (const required of ['dogfoodRoot', 'repo', 'candidate', 'cli']) {
@@ -70,19 +68,10 @@ export async function runAcceptance(input) {
   const gate = (name, status, detail, evidencePath) => gates.push({ gate: name, status, detail, ...(evidencePath !== undefined ? { evidencePath, evidenceSha256: 'pending' } : {}) })
   const failed = () => gates.some(entry => entry.status === 'fail')
   let isolation
-  let candidate
-  let candidateTarball = tarballPath
   try {
     // ── A0: freeze discipline ─────────────────────────────────────────────
     const artifact = await verifyArtifactAgainstManifest(manifest, tarballPath)
-    const commonDir = await git(args.repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
-    if (commonDir.code !== 0) throw new Error('source Git authority is unavailable')
-    candidate = process.platform === 'win32' ? await openCandidateSession(args.candidateAccountRoot, run, [args.dogfoodRoot, args.repo, commonDir.stdout.trim()], args.cli) : undefined
-    if (candidate !== undefined) {
-      // Candidate scripts may mutate their source tree, never the frozen input.
-      candidateTarball = await candidate.stageInput(tarballPath)
-    }
-    isolation = acceptanceIsolation(drillDir, layout, candidate?.root)
+    isolation = acceptanceIsolation(drillDir, layout)
     if (!isolation.ok) throw new Error(`drill isolation violated: ${isolation.violations.join('; ')}`)
     if (await stat(drillDir).then(() => true, () => false)) {
       throw new Error(`drill domain already exists (acceptance requires a fresh domain per run): ${drillDir}`)
@@ -104,7 +93,7 @@ export async function runAcceptance(input) {
       // dependency lifecycle scripts must not execute with PM authority. This
       // source-root hardening is distinct from Profile tarball installation,
       // which runs the published package's normal lifecycle scripts below.
-      const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: verifyRoot, candidate })
+      const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: verifyRoot })
       await writeFile(join(isolation.domains.evidence, 'a1-install.log'), install.stdout + install.stderr, 'utf8')
       if (install.code !== 0) {
         laneResults.push({ lane: 'install', exitCode: install.code, durationMs: install.durationMs })
@@ -116,10 +105,10 @@ export async function runAcceptance(input) {
         // suites under load, both green on re-run) — a deterministic failure
         // (the P4a injected defect) stays red through the retry, a flake
         // recovers, and BOTH attempts land in the evidence log.
-        let result = await run('pnpm', [lane], { cwd: verifyRoot, candidate })
+        let result = await run('pnpm', [lane], { cwd: verifyRoot })
         let attempts = 1
         if (result.code !== 0) {
-          const retry = await run('pnpm', [lane], { cwd: verifyRoot, candidate })
+          const retry = await run('pnpm', [lane], { cwd: verifyRoot })
           attempts = 2
           await writeFile(join(isolation.domains.evidence, `a1-lane-${lane.replace(/:/g, '_')}.retry.log`), retry.stdout + retry.stderr, 'utf8')
           result = retry
@@ -130,14 +119,14 @@ export async function runAcceptance(input) {
       }
       // The artifact gate needs lib/ — build it when the lane loop broke
       // before the build lane (or on retry paths); idempotent otherwise.
-      const build = await run('pnpm', ['build'], { cwd: verifyRoot, candidate })
+      const build = await run('pnpm', ['build'], { cwd: verifyRoot })
       if (build.code !== 0) {
         await writeFile(join(isolation.domains.evidence, 'a2-build.log'), build.stdout + build.stderr, 'utf8')
         artifactCheck = { exitCode: build.code, note: 'pnpm build failed in the verification root' }
       } else {
-        artifactCheck = await run(process.execPath, ['scripts/verify-package-artifact.mjs'], { cwd: verifyRoot, candidate })
+        artifactCheck = await run(process.execPath, ['scripts/verify-package-artifact.mjs'], { cwd: verifyRoot })
       }
-    }, 'agent-swarm-accept-verify', candidate)
+    }, 'agent-swarm-accept-verify')
     const a1Ok = laneResults.length === lanes.length && laneResults.every(result => result.exitCode === 0)
     await writeJsonFile(join(isolation.domains.evidence, 'a1-lanes.json'), { lanes, verificationRootCommit: manifest.gitCommit, laneResults })
     gate('a1-source-floor', a1Ok ? 'pass' : 'fail', a1Ok ? `all ${lanes.length} lanes green (${lanes.join(', ')})` : `failed lanes: ${laneResults.filter(result => result.exitCode !== 0).map(result => `${result.lane}(${result.exitCode})`).join(', ')}`, 'a1-lanes.json')
@@ -149,18 +138,9 @@ export async function runAcceptance(input) {
     // ── A3: assembly in the drill home + fail-closed negative probe ──────
     const drillHome = isolation.domains.home
     const env = { DSH_HOME: drillHome }
-    const cli = candidate?.cli ?? args.cli
-    const runOptions = { env, candidate, cwd: isolation.domains.workspace }
-    const writeProfilePatch = async (path, content) => {
-      if (candidate === undefined) return writeFile(path, content, 'utf8')
-      // The installed candidate controls this tree. Perform writes with its
-      // account so a profile-path junction cannot redirect controller writes.
-      const result = await run(process.execPath, ['-e', 'require("node:fs").writeFileSync(process.argv[1], process.argv[2], "utf8")', path, content], runOptions)
-      if (result.code !== 0) throw new Error('candidate Profile patch write failed')
-    }
-    const version = await run(process.execPath, [cli, '--version'], runOptions)
-    const pluginAdd = await run(process.execPath, [cli, 'plugin', '--profile', args.profile, 'add', '-w', candidateTarball], { ...runOptions, timeoutMs: 10 * 60_000 })
-    await writeProfilePatch(join(drillHome, 'profiles', args.profile, 'cordis.patch.yml'), [
+    const version = await run(process.execPath, [args.cli, '--version'], { env })
+    const pluginAdd = await run(process.execPath, [args.cli, 'plugin', '--profile', args.profile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    await writeFile(join(drillHome, 'profiles', args.profile, 'cordis.patch.yml'), [
       `# M3-3 acceptance-domain storage isolation (issue #102): the web template's`,
       `# storage rows are re-rooted into THIS drill domain's dedicated roots — the`,
       `# stable control roots and ~/.dsh are never touched (red line 14).`,
@@ -171,12 +151,12 @@ export async function runAcceptance(input) {
       `  config:`,
       `    root: '${forwardSlashes(isolation.domains.sessionsRoot)}'`,
       ``,
-    ].join('\n'))
-    const dump = await run(process.execPath, [cli, '--profile', args.profile, '--dump-config'], runOptions)
+    ].join('\n'), 'utf8')
+    const dump = await run(process.execPath, [args.cli, '--profile', args.profile, '--dump-config'], { env })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm') && dump.stdout.includes(forwardSlashes(isolation.domains.storageRoot)) && dump.stdout.includes(forwardSlashes(isolation.domains.sessionsRoot))
     const failClosedProfile = 'm3c-failclosed'
-    await run(process.execPath, [cli, 'plugin', '--profile', failClosedProfile, 'add', '-w', candidateTarball], { ...runOptions, timeoutMs: 10 * 60_000 })
-    await writeProfilePatch(join(drillHome, 'profiles', failClosedProfile, 'cordis.patch.yml'), [
+    await run(process.execPath, [args.cli, 'plugin', '--profile', failClosedProfile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    await writeFile(join(drillHome, 'profiles', failClosedProfile, 'cordis.patch.yml'), [
       `# M3-3 fail-closed negative probe (M1D-1 §4 form): storage stack WITHOUT`,
       `# storage-domain — the plugin must stay pending and the boot must exit 1.`,
       `- insert:`,
@@ -187,8 +167,8 @@ export async function runAcceptance(input) {
       `      config:`,
       `        root: '${forwardSlashes(isolation.domains.storageRoot)}'`,
       ``,
-    ].join('\n'))
-    const failClosed = await run(process.execPath, [cli, '--profile', failClosedProfile], { ...runOptions, timeoutMs: 120_000 })
+    ].join('\n'), 'utf8')
+    const failClosed = await run(process.execPath, [args.cli, '--profile', failClosedProfile], { env, timeoutMs: 120_000 })
     const failClosedOk = failClosed.code !== 0 && (failClosed.stdout + failClosed.stderr).includes('dsh-agent-swarm: pending')
     await writeFile(join(isolation.domains.evidence, 'a3-plugin-add.log'), pluginAdd.stdout + pluginAdd.stderr, 'utf8')
     await writeFile(join(isolation.domains.evidence, 'a3-dump-config.txt'), dump.stdout, 'utf8')
@@ -196,8 +176,7 @@ export async function runAcceptance(input) {
     gate('a3-assembly-fail-closed', version.code === 0 && pluginAdd.code === 0 && dumpOk && failClosedOk ? 'pass' : 'fail', `version=${version.code} add=${pluginAdd.code} dump=${dump.code}/${dumpOk} failClosed=${failClosed.code}/${failClosedOk}`, 'a3-assembly-fail-closed.json')
 
     // ── A4: boot + load (survival proves every entry ACTIVE) ─────────────
-    const planeOptions = { cli, home: drillHome, profile: args.profile, port: args.port, candidate, cwd: isolation.domains.workspace }
-    const boot = await bootPlane(planeOptions)
+    const boot = await bootPlane({ cli: args.cli, home: drillHome, profile: args.profile, port: args.port })
     const describe = boot.ready ? await rpcCall(args.port, 'host.describe', {}) : { ok: false }
     // host.describe's `home` is the host account home by contract, NOT
     // DSH_HOME; the acceptance-identity evidence is the dump-config assembly
@@ -209,7 +188,7 @@ export async function runAcceptance(input) {
     await stopPlane(boot)
 
     // ── A5: RPC health loop (fresh boot; no model turn — no credentials in the acceptance face) ──
-    const boot2 = await bootPlane(planeOptions)
+    const boot2 = await bootPlane({ cli: args.cli, home: drillHome, profile: args.profile, port: args.port })
     const created = boot2.ready ? await rpcCall(args.port, 'session.create', {}) : { ok: false }
     const sessionId = created.body?.result?.value?.sessionId
     const history = sessionId !== undefined ? await rpcCall(args.port, 'session.history', { sessionId }) : { ok: false }
@@ -220,16 +199,14 @@ export async function runAcceptance(input) {
     gate('a5-rpc-health', created.ok && history.ok && storageRootPresent ? 'pass' : 'fail', `session.create=${created.ok} session.history=${history.ok} storageRootOpenedInDomain=${storageRootPresent} storageUnitFile=${storageUnitOpened}`, 'a5-rpc-health.json')
 
     // ── A6: reload/recovery subset + bounded teardown ─────────────────────
-    const boot3 = await bootPlane(planeOptions)
+    const boot3 = await bootPlane({ cli: args.cli, home: drillHome, profile: args.profile, port: args.port })
     const describe3 = boot3.ready ? await rpcCall(args.port, 'host.describe', {}) : { ok: false }
     const stopResult = await stopPlane(boot3)
-    const free = await waitPortFree(args.port, 15_000, '127.0.0.1', { reclaim: candidate === undefined })
+    const free = await waitPortFree(args.port, 15_000, '127.0.0.1', { reclaim: true })
     await writeJsonFile(join(isolation.domains.evidence, 'a6-reload-recovery-teardown.json'), { reloadBootReady: boot3.ready, reloadDescribeOk: describe3.ok, teardown: stopResult, portFreeAfterTeardown: free })
     gate('a6-reload-recovery-teardown', boot3.ready && describe3.ok && stopResult.exited && free ? 'pass' : 'fail', `reloadBoot=${boot3.ready} teardownExited=${stopResult.exited} portFree=${free}`, 'a6-reload-recovery-teardown.json')
   } catch (error) {
     gate('acceptance-run', 'fail', error instanceof Error ? error.message : String(error))
-  } finally {
-    try { await candidate?.dispose() } catch (error) { gate('candidate-teardown', 'fail', String(error)) }
   }
 
   // ── A7: verdict (pure evidence — no promotion verb) ──────────────────────
@@ -245,7 +222,7 @@ export async function runAcceptance(input) {
     tarballSha256: manifest.tarballSha256,
     overall,
     gates,
-    run: { drillDir, lanes: args.lanes, laneList: args.lanes === 'full' ? FULL_LANES : FLOOR_LANES, cli: candidate?.sourceCli ?? args.cli, runtimeCli: candidate?.cli, port: args.port, profile: args.profile, finishedAt: new Date().toISOString() },
+    run: { drillDir, lanes: args.lanes, laneList: args.lanes === 'full' ? FULL_LANES : FLOOR_LANES, cli: args.cli, port: args.port, profile: args.profile, finishedAt: new Date().toISOString() },
   }
   let verdictDigest = 'missing'
   if (isolation !== undefined) {

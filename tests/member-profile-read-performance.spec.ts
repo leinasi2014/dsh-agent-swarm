@@ -40,7 +40,7 @@ it('keeps the bounded cold fallback current after a persisted catalog revision c
   const reader = new MemberProfileReader(f.ctx), signal = new AbortController().signal
   expect((await reader.list(f.team, [f.member], signal))[0]?.profileState).toBe('available')
   expect((await reader.list(f.team, [f.member], signal))[0]?.profileState).toBe('available')
-  // Fixed rc.2 did not cache these cold reads in the real Cordis fixture;
+  // Fixed alpha.2 did not cache these cold reads in the real Cordis fixture;
   // that failed optimization is retained in Issue 268's RED evidence.
   expect(open.mock.calls.filter(([, access]) => access === 'read')).toHaveLength(2)
   const before = await f.ctx.sessionPersistence.stat(f.session.id)
