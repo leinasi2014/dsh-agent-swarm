@@ -31,7 +31,6 @@ import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permissio
 import { TeamDomainError } from '../domain/error.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { mountAgentSwarmPublicRpc } from '../rpc/public-rpc-service.js'
-import { mountMemberChatRpc } from '../rpc/member-chat-rpc.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
 import { installChildOperationRecovery } from '../runtime/continuable-child.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
@@ -309,7 +308,6 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       disposeHostRead = assembleAgentSwarmHostRead(ctx, runtime, overlay, disposalTimeoutMs)
       mountAgentSwarmReadRpc(ctx, runtime, disposalTimeoutMs)
       mountAgentSwarmPublicRpc(ctx, runtime)
-      mountMemberChatRpc(ctx, runtime)
       return async () => {
         const drained = drain()
         await disposeHostRead?.()

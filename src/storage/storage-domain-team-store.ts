@@ -19,6 +19,7 @@ import { archiveTeamDraft, settleRetiredPublicDraft, type RetirementPublicFact }
 import { assertRetiredReferencesExcluded, assertTeamWritable, teamIsRetired } from './team-retirement-store.js'
 import { assertTeamState } from '../domain/state-validation.js'
 import { assertGoalState } from '../domain/goal-validation.js'
+import { assertTaskGraph } from '../domain/graph.js'
 import type {
   MigrationReceipt,
   TeamAggregateStore,
@@ -171,7 +172,10 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   private envelope(scope: TeamScope, team: TeamState) {
     // Official put does not run the table schema. New goal/cancellation facts
     // must be valid before publish as well as on load, including semantic links.
+    // The task graph is a semantic link: the read path rejects a broken one, so
+    // publishing one here would leave the aggregate permanently unreadable.
     assertGoalState(team)
+    assertTaskGraph(team.tasks)
     return teamRecordOf(scope, team)
   }
 

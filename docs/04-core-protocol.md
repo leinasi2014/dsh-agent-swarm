@@ -17,10 +17,6 @@ Main Brain Session（Team 外）
 - 一个 Session 可参与显式寻址的多个上下文时，隐式 Team 解析必须拒绝歧义。
 - UI 中的“当前队长会话”与 Main Brain Chat 必须清楚区分；打开 Captain 只导航官方 Session。
 
-已认证本地操作者可通过 `/swarm-member-chat` 的 `target` 只读解析和 `prompt` 命令向精确 active Member Session 私聊。Host 从 Main/Team、roster 内部 name、Session id 及官方持久 continuable lineage 验证身份；这些字符串只选择目标，不授予 Captain 或模型工具权限。发送复用现有 managed 根恢复和短期 `withLiveChild`，在恢复父链后重新取得 Host 身份证明，再调用官方 `Subagent.prompt`。文本不裁剪、不增加代理指令，图片由官方附件服务准入，request id、用户来源和时区进入官方 Session；群聊、任务及 Team mailbox 不记录这条私聊。rc.2 官方 continuable prompt 不接受普通文件收据，客户端明确报错并保留附件，不转换或丢弃它。
-
-私聊 admission 与成员移除、团队清退共用既有 Team 互斥，关闭时取消并等待在途调用，所有短期 continuation ownership 在调用结束释放。页面浏览不恢复父 Agent，也不保持整页 maintenance；官方 `parentAvailable` 投影保持原义。错误或响应不确定时保留草稿，不自动重投，不以 RPC 受理回执冒称模型已经完成回复。
-
 ## 2. Team aggregate
 
 一个 Team 至少包含：
@@ -58,9 +54,21 @@ Team 阶段为 `staged | active | archived`：`staged` 是 Plan-first 声明态�
 
 删除操作采用独立 Storage Domain 记录最少量 request/result 与恢复进度，不复制聊天或记忆内容。先持久冻结恢复与写入，等待在途提交，再删除该队个人记忆、human interaction、workflow overlay、迁移回执和专属 Session artifacts，Team payload 最后删除。重试读取同一 receipt；半程失败保留冻结状态，启动恢复先处理冻结，再恢复其他团队。非会话成果、模型和项目文件不属于清理范围。
 
-官方 alpha.2 提供 Session dispose、读写句柄和 Storage Domain delete，未提供 Session 永久删除接口。插件的 JSONL 清理 Provider 明确限定 Windows 与固定 alpha.2 文件后端：根目录来自 Host 配置；通过公开当前代次路径与 header 核实严格身份、根包含关系、无链接逃逸；持有官方 write handle 租约时删除整个专属目录及其 generations/metadata。无 pending/live 写者后，官方 stat/list/open 与 query 会重新检查磁盘，删除后以公开搜索触发 SQLite 派生索引 reconcile，不访问私有缓存。POSIX inode 锁不能用这条整目录删除路径。已交付的旧读取快照不构成新的可读会话，也不承诺内存安全擦除。
+官方 rc.2 提供 Session dispose、读写句柄和 Storage Domain delete，未提供 Session 永久删除接口。插件的 JSONL 清理 Provider 明确限定 Windows 与固定 rc.2 文件后端：根目录来自 Host 配置；通过公开当前代次路径与 header 核实严格身份、根包含关系、无链接逃逸；持有官方 write handle 租约时删除整个专属目录及其 generations/metadata。无 pending/live 写者后，官方 stat/list/open 与 query 会重新检查磁盘，删除后以公开搜索触发 SQLite 派生索引 reconcile，不访问私有缓存。POSIX inode 锁不能用这条整目录删除路径。已交付的旧读取快照不构成新的可读会话，也不承诺内存安全擦除。
 
 验收覆盖预览/提交竞态、跨 Team 与 Main 保护、停止和持久提交顺序、部分清理重试、缓存预热后的新查询及重启、真实 React 归档历史与删除确认。所有删除试验仅使用任务自有临时根；当前 Provider 限制通过明确错误暴露。
+
+### 2.3 active Team 的追加变更
+
+- active Team 允许追加成员声明与任务，这是独立的生命周期事件：它不等同于重新提交计划、不是已批准计划的恢复，也不合并 `planDraft`。staged Team 继续走 §2.1；`archived` 以及正在归档中的 Team 一律拒绝追加，避免产生不可达成员或幽灵成员。
+- 追加只允许新增：不得删除成员、不得替换既有成员身份、不得覆盖既有成员运行配置，也不得改变既有任务图拓扑——既有任务的依赖、目标与状态只可读、不可改。第一版追加产生的任务不得依赖既有任务，只能依赖同一次追加产生的任务或保持无依赖。
+- 追加在既有权限边界内由 Captain 执行；Main Brain 不因创建权获得 active Team 的追加写权。Main Brain 的下一批编制意图以既有工作请求持久落账并进入 Team memory，由 Captain 依该意图执行追加，不得绕过 Captain 审核与既有 revision/attempt 围栏。
+- 每次追加必须携带稳定变更标识、幂等键与 provision 幂等保证：同一逻辑追加重复提交返回既有结果，不得重复创建成员、任务或任何副作用；CAS 失败只拒绝，且不得部分应用追加结果。
+- 追加成员具有显式生命周期：已声明 → 配置中 → 就绪 / 失败。**未就绪的成员不得成为任何任务目标**；已 provision 不等于已就绪。就绪判定至少覆盖 continuable child 已启动、路由已校验、Skills 与工具策略已生效。
+- 追加的模型路由必须经校验：成员声明不得伪造个人身份字段；实现者与验证者的模型家族独立约束在就绪判定中强制，未通过校验不得进入就绪。
+- 追加必须产生可审计事实：发起主体、时间、目标声明、结果状态与对应 revision 均可读回。审计事实从 Session 日志与 Team aggregate 重建，不新建第二套状态权威或独立审计库。
+- 追加状态必须进入读投影：声明成员、生命周期状态与追加结果对 UI 与读契约可见，不允许只写存储而读侧不可见。
+- 追加失败不静默回滚已提交的 durable authority；恢复只允许继续完成同一次追加，不得产生新的追加语义。
 
 ## 3. revision 与 attempt 围栏
 
@@ -110,7 +118,36 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 插件 communicationIntensity 沿现有设置的 restart 生效规则；Captain 的 agent_swarm_set_communication 使用 Team revision CAS 保存即时生效的 override，inherit 清除覆盖。当前强度注入参与者上下文；Host/RPC 投影展示生效值和来源。团队面板通过官方 Captain user prompt queue 提交用户的明确调节请求，不模拟 Captain 身份调用工具；只有更新后的 Team revision 与目标值匹配才显示已生效，忙碌时如实显示等待队长处理。
 
-DSH `0.1.5-alpha.2` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
+DSH `0.1.5-rc.2` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
+
+### 5.1 通信交互与效率约定
+
+本节规定协作者如何使用现有通信能力；不新增工具、任务状态或权限。计量口径见 [08-testing-verification.md](08-testing-verification.md#团队效率计量标准)，现场反馈格式见 [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md#效率问题反馈)。
+
+通信必须区分以下阶段，回执只报告已经有权威证据的那一阶段：
+
+| 阶段 | 足够的证据 | 不能推导出的结论 |
+| --- | --- | --- |
+| 请求已提交 | 原 requestId 对应的耐久提交结果 | Captain 已阅读或已派工 |
+| Captain 已处理 | 正式决策及其实际 Task 映射 | 成员已开始执行 |
+| assignment 已认领到输入 | 同一 frame 已进入目标模型可见历史 | 工具已执行、成果已产生 |
+| 执行／成果提交 | 关联 task/attempt 的实际执行或提交证据 | 审核通过 |
+| 审核接受 | 同一 task/attempt/revision 的接受结果 | 用户未要求的其他目标也已完成 |
+
+Main 是外部指挥入口，使用正式工单转交；不得伪装成 Team 成员发信。Captain 调度现有成员，不能把自己的 Session 当作普通 `target_member`。这不改变已经存在的 Captain 自领合同。成员有工作时报告结果、具体阻塞或需要决定的事项，待命时结束回合，不用重复询问、空任务或无变化唤醒保持活跃。
+
+派工只携带目标、必要输入引用、允许写入范围、验收标准、责任方和必须遵守的约束。稳定规则用明确版本的引用；变化、缺失或无法读取时再获取原文，不在每次派工重复整份历史。Main 的提交回执通常用一至三句说明请求身份、实际阶段和下一责任方；不把原请求、工具结果和完整规则再复述一遍。简洁不能省略关键失败、恢复标识或验收条件。
+
+关联信息使用实际工具 schema 支持的 requestId、reply_to、Task 和 attempt 字段；缺失关联时明确说明，不臆造字段或地址。优先复用原任务。对已有工单的追加更正、确认吸收且不创建新任务，仍须有独立验收的正式产品入口；普通聊天、新建补充工单或目标修改不能冒称已经改变原工单。入口未提供时由 Captain 明确向原任务执行者发送真实更正，并如实报告尚未结清的工单状态。不能创建空任务凑满足 accept，也不能把已吸收的更正伪记为拒绝；更正不隐含取消、改派或重新打开任务。
+
+错误恢复采用下面的分类，保留防覆盖、权限和输入校验：
+
+- 明确的 revision 冲突：本次写入失败；重新读取权威状态，核对原意后至多尝试一次，不能猜版本或直接把报错中的 current 当作授权。再次冲突报告并发情况，避免自旋。
+- 响应丢失或结果未知：先读回；仅对已有幂等合同的操作复用原请求身份和冻结载荷重试。没有幂等合同的公告、写文件等操作不能按“明确未提交”盲重放。
+- PTC 模式：以当前工具呈现与官方 SDK 为准；仅暴露 `run_code` 时，其他工具在其程序内调用，不能顶层直调。相互独立的必要读取可合并；共享 revision 的写入串行执行并使用最新权威，不能并行复用旧版本。
+- 参数或产物错误：修正具体输入再调用。像素色号必须存在于 palette；使用工具返回并实际读回的绝对产物路径，不猜测另一个进程的 TEMP。shell 子命令失败须保留退出码和 stderr，外层成功不能冒充子命令成功。
+
+同一次子工具失败及其外层 `run_code` 包装只计一次根因事件，分别保留观察层。一次修正后仍失败时先核对调用方式、输入和可见路径；连续两次没有新证据的同法重试应停止该重试方式，报告阻塞或换用已验证的最短路径，不因此擅自终止整个团队。已经存在的可用成果可以先交付，非必要美化、裁图、预检和行政回执不得阻塞它。
 
 ## 6. 工具与权限
 
@@ -139,15 +176,13 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 
 插件设置提供新 Team 默认 Skill allow-list，Team 可保存自己的 allow-list；成员只能使用 host catalog 与 Team allow-list 的交集。Skills 名称来自实际 catalog projection，用户不手填服务器路径。
 
-私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。成员私有笔记维护、自动召回和 Team shared memory 各有独立授权边界；Skills 模块按后续接入合同推进，不能从职业、头像或记忆推断能力。
+私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。当前已有成员私有 append/list 和 Team shared memory；以下为新增模块的接入合同，具体接口实现和验收按统一开发方案推进，不能从职业、头像或记忆推断能力。
 
-### 7.1 个人记忆维护与召回合同
+### 7.1 新增个人记忆维护与召回合同
 
-私有分区保持 scope/Team/Session。`agent_swarm_maintain_private_memory` 只允许当前 active 成员以本人身份执行 add、revise、invalidate 或 replace；修订/作废/替代必须提供实际读到的记录级 `expected_head_seq`。revise 完整替换 content、evidence_refs、tags、applicability，缺字段拒绝，不作局部补丁。旧 append/list 兼容读取，未作废不代表已验证。写队列在实际持久副作用前重新校验 live Agent、Session、membership、权限与取消，并与成员退出串行化。稳定 `operation_id` 对相同规范化载荷重放原回执，不重复追加；同 ID 改载荷冲突。已提交写入不宣称能被 abort 撤销。首期容量满额明确拒绝，不物理回收导致序号或旧 offset 漂移。
+私有分区保持 scope/Team/Session。维护请求只允许真实本人，修订采用记录级 expected revision；旧记录兼容读取，未作废不代表已验证。写队列的实际持久副作用前重新校验身份、membership、权限与取消；同一持久逻辑操作重试幂等，已提交写入不宣称能被 abort 撤销。首期容量满额明确拒绝，不物理回收导致序号或旧 offset 漂移。
 
-自动召回由 Host 配置 `privateMemoryRecall: active-task` 独立授权，默认 `disabled`。成员/Captain 提示词、工具 allow 或单次人工批准不能开启该授权；本人 list 工具的 deny/ask 只会进一步收窄读取。召回仅选择本人唯一合法 in-progress Task 与当前 running attempt 的有效笔记，记录 task/attempt、所选记录 ID 与 headSeq。内容进入官方单条命名 context `agent-swarm:private-memory-recall`，最终转义后总量不超过 4096 UTF-8 bytes，作为经验数据而非权限或高优先级指令。
-
-召回在实际请求前重验选集和授权；无命中、任务变化、笔记失效、撤权、配置禁用或插件卸载时移除当前贡献，压缩和冷恢复重新建立正确选集。清除当前贡献不删除官方 Session 中的旧事件锚点。私有内容不进入公开 identity/directory、Team shared memory 或 Skills 模块；注册与清理由当前插件生命周期持有。
+自动召回仅选择本人唯一合法 in-progress Task 与当前 running attempt 的有限笔记，记录任务身份和所选记录 ID。独立私有 context 不进入公开 identity/directory；无命中、任务变化、笔记失效或撤权时移除旧贡献。自动读取的权限合同独立于显式工具调用批准，压缩和冷恢复重新建立正确选集。
 
 ### 7.2 新增独立 Skills 模块合同
 
@@ -156,6 +191,8 @@ Captain 的技能申请在模块持久收件后才返回已接收；重复请求
 管理读取绑定真实专用 Session 和获授权的同 Host/Profile workspace/Team 清单，不接受模型借用其他根会话身份。历史基线从一个 Team 聚合同时读取任务/attempt 和活动水位；模块将本页待处理引用与游标放入同一消费者记录的一次官方 update，不伪称多表事务。hasMore 只推进本页尾部；保留缺口、来源回退、同序号异 ID 和不可用来源分别显式处理。私有记忆不在授权导出范围内。
 
 release 绑定不可变正文/资源树摘要、原版本、验证及批准身份。作者不得自批，正文或资源变更使旧批准失效；发布不增加 Team allow-list。精确 task/attempt 取证不足、外部文件改变或版本不能证明时返回 needs_evidence，不能从当前 assigned 名单反推历史 Skill 使用。
+
+经验到技能保留来源及派生 release 关联；删除原始笔记不会自动撤销已生成技能，受污染来源须能查明派生版本并通过明确授权撤销/回退。候选试验使用受限执行能力与独立验证身份；新 Session 或事后日志扫描不等于文件/工具隔离。开发期可用反馈与最终未参与演进的保留验收集分开，限制反馈查询次数，代理验证器通过不能自行发布。验收包括无收益时不发布、恶意经验不能提升权限、来源撤销后的派生版本处理，以及真实结果和模拟验证的区别。
 
 Captain 通过窄 assign 接口选择本队获准 release，Host 保存目标分配并安全装配。assigned 为持久分配，effective 为后续请求实际采用，loaded 为工具结果或合法 `skill-invocation` 正文实际进入请求；两条加载路径都核对精确 release、Provider、正文及资源摘要，三种事实不合并成能力评分。当前 attempt 通过任一路径已加载旧正文时，首版等下一 attempt 切换；在途请求保持固定 manifest。撤销、空集、失败回退、压缩、冷恢复和模块禁用须保持版本与权限可读回。
 
@@ -192,13 +229,15 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 以请求 Session 的官方 live/persisted header 与当前 active roster 为依据，校验成员→Captain→无父级主会话的关系及相同 scope，才在 local-single-user 只读 RPC 中提供该主会话的兄弟团队目录与显式选中团队的读取。普通 child、移除/旧身份、跨 scope 或缺失关系不获得该扩展。`teams.binding.rootSessionId` 仍是请求 Session，可选 `mainSessionId/mainSessionTitle/currentTeamId/currentMemberName` 是经验证的导航投影；主会话标题仅取官方公开 Session 标题，成员名仅取所属 Team 当前公开资料，缺失不编造。每次 section/read 继续重新验证请求身份和关系，UI 不能缓存成权限。
 
-成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。已核验的同 Team 活跃 Captain/成员切换可保留只读投影，同时对新 Session 重新读取并验证绑定；无关 Session 清空旧正文，不复用其权限。各 Session 的官方页签分别保留，打开动作通过 `SidebarRightNavigator.openTabIn(targetSessionId)` 精确寻址；只有实际 `observeTab` 才确认 docked。首次 store 尚未接管时依靠既有权威读取节奏重试，不能向旧 Session 的 seat 写入，也不能把调用成功当作页签已显示。导航提交在所有读取与导航校验之后，通过本地 alpha.2 SidebarRight 公共补丁 `isExpandedIn/setExpandedIn` 读取源 Session 的当前展开偏好；源栏隐藏时将已接管目标设为收起。未接管目标不排队写入，默认收起；已接管但尚未初始化的布局按收起读取。读取精确 Session，不能依赖仍属于旧会话的 mounted seat，也不在 await 后恢复先前捕获的偏好。个人 Chat 通过本地 alpha.2 ui-chat 公共补丁 `chatNavigation.requestLatest` 在官方导航前请求一次最新位置，同一 current Session 重入也有效。请求由 ChatView 在已打开且属于当前 Session 时消费，优先于旧阅读位置恢复；消费后恢复原有手动阅读逻辑。精确请求 token 支持覆盖、取消和卸载清理，不拥有会话权限或历史。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
+成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。已核验的同 Team 活跃 Captain/成员切换可保留只读投影，同时对新 Session 重新读取并验证绑定；无关 Session 清空旧正文，不复用其权限。各 Session 的官方页签分别保留，打开动作通过 `SidebarRightNavigator.openTabIn(targetSessionId)` 精确寻址；只有实际 `observeTab` 才确认 docked。首次 store 尚未接管时依靠既有权威读取节奏重试，不能向旧 Session 的 seat 写入，也不能把调用成功当作页签已显示。导航提交在所有读取与导航校验之后，展开偏好只按官方当前挂载面读取：官方仅提供 `sidebarRight.isExpanded()/toggleExpanded()`，没有按目标 Session 读写的接口，因此不跨会话继承展开态，接管后的目标按当前面处理。读取精确 Session，不能依赖仍属于旧会话的 mounted seat，也不在 await 后恢复先前捕获的偏好。个人 Chat 依赖官方 Chat 视图自身的打开行为：首次打开滚到底部，仅在存在被保存的阅读位置时恢复该位置；插件不请求一次性最新位置，也不持有会话权限或历史。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
+
+全局 `swarm.group` 主面板由 `TeamGroupPanel` 复用同一 controller、chat、work、coordinator 与导航回调，展示常驻团队分组、公共群聊和可收合的团队详情。官方 global mainPanel 非空时没有 Session 右栏座位，群聊内展开只使用当前 viewer、Team 与 Captain 绑定的局部显示状态，不以 Sidebar store 更新或人工 `observeTab` 充当可见证据。关闭卸载详情并回焦原按钮，群聊组件、草稿和阅读位置继续由原 owner 保持；窄容器改为上下布局，详情在本容器内覆盖显示。切换 viewer 时，当前 Session、目录 viewer 与所选投影未一致前隐藏旧正文和导航；同 viewer 切队时保留分组入口，旧详情立即隐藏，新 Team 经验证后才可展开。右侧详情关闭其内嵌分组导航，避免重复 retirement 订阅。普通 Session 中的官方 Team 页签仍遵守上面的 coordinator/observeTab 合同。
 
 ### 8.1 公共文本消息与显式公开回报
 
 公共群聊的首个写入切片采用官方 Connection RPC 认证通道 `/swarm-public`，以 `v1/history`、`v1/append`、`v1/requestResult` 为版本化端点，由 Host 的 `connection.rpc.handle` 注册并随 Context 注销。官方 channel 只允许单段路径；客户端调用相同通道与端点，最终 HTTP 路径为 `/swarm-public/v1/...`。官方 Host/Origin 与 BrowserAuth 检查先于业务 handler。handler 内派生的作者仅表示本 Host 已认证的 `local-operator`，Cookie 不提供多用户 userId，不能冒充已有 `authenticated-human` principal。wire 不接受作者、principal 或 Captain 身份。请求的 Session 与 Team 仅用于选择目标，Host 重验真实 scope、官方 Session 关系和当前 Team；旧 `/swarm/v1` 仍是原有只读合同。
 
-部署依赖 Connection 在自身提供方作用域注入 `webServer` 并挂载频道，同时保留调用方的声明与撤销所有权。`0.1.5-alpha.2` 原包在兄弟插件提供 WebServer 时存在注入错误；源码中的 `patches/@deepseek-ai__dsh-client-connection@0.1.5-alpha.2.patch` 固定测试依赖，真实 Host 也须安装对应 Core 包。仅安装 Swarm 插件不会替换 Host 的 Connection；根 Context 直接提供 WebServer 的 fixture 不能证明该部署条件成立。
+部署依赖 Connection 在自身提供方作用域注入 `webServer` 并挂载频道，同时保留调用方的声明与撤销所有权。插件通过官方入口 `connection.rpc.handle(channel, handler)` 挂载自己的 RPC 频道，声明与撤销所有权仍归调用方；Web 载体由官方 Connection 自己绑定，插件不替换 Host 的 Connection，也不依赖插件仓库的补丁。根 Context 直接提供 WebServer 的 fixture 不能证明该部署条件成立。
 
 v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显式发布带 `replyTo` 的公开回报。新发送仅向具有有效 `managedOrigin`、准确 Main→Captain 关系、可由现有 managed recovery owner 恢复的 active 托管 Team 开放；普通、staged 或已归档 Team 明确不可发送，读取可用性不授予写权。Host 公开读取、追加与查询原请求结果；Agent 回报从实际工具执行上下文派生作者并验证当前同队权限。个人 Session 的完整输出不会自动转贴到群里，公开回报也不会隐式唤醒全员。v2 的多提及与共享目录按下一节扩展同一消息权威，图片、工作请求及目标控制继续沿后续切片接入。
 
@@ -214,13 +253,13 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。
 
-成员公开原创使用 `agent_swarm_public_post`，从实际工具上下文取得作者，以 v2 保存至同一公开消息权威；不要求 `replyTo`，也不创建提及投递、任务或唤醒。`agent_swarm_public_reply` 继续要求本队已存在的精确公开消息 ID，两者共用原事务、容量和幂等边界。
-
-成员原文读取使用 `agent_swarm_public_history` 与 `agent_swarm_public_message`，只从本人的真实 live Agent、Session、scope 和当前 membership 派生本队，不接受借用浏览器身份或自行指定他队。读取前后复核精确运行身份和关闭/取消信号，第二次权威 membership 读取同时固定队伍、Captain 与返回内容；目标变化时丢弃本页。输出限公开作者、正文、`reply_to`、公开图片 ID 与元数据；附件引用、请求凭据、投递 frame 和私人会话正文不对模型导出，读取本身不恢复会话、投递、唤醒或创建任务。
-
-历史页默认 20 条、最多 50 条，默认序列化输出预算 32,768 UTF-8 字节，可设 1,024–65,536 字节。`before_sequence` 与 `after_sequence` 互斥；默认及向前翻页保留窗口较新的记录，向后续读保留较早记录，覆盖范围按最终返回行计算。预算不足时明确标记正文省略，并保留可精确读取的消息 ID，不能静默丢失翻页方向上的原文。精确消息读取按 Unicode 码点 `offset` 分段，默认 8,000、最多 20,000 码点，返回 `text_total`、`text_offset`、`truncated`、`has_more_text` 和 `complete`；只有从零开始且已返回全文时 `complete` 为真。未知 ID 与非法 offset 分别拒绝，既有工具 allow/ask/deny 继续收紧默认可见性。
-
 ### 8.2 稳定身份提及与共享目录
+
+定向成员投递需要先取得其精确 Captain。冷 Captain 必须经官方 `queueHostSubagentPrompt` 从自己的 descriptor 恢复模型、人设、工具限制与 continuation 所有权，不能裸 `agents.resume`。本插件只为该次操作发出带 plugin provenance 和唯一 UUID 的 v1 transport marker，在同步 inbox 插入边界取得 `Agent.runMaintenance`，仅移除该 marker，待官方 admission 返回并释放 child 锁后执行投递。维护期间的新输入保留原队列与唤醒，控制 marker 本身不调用模型；真实子代理结束通知照常处理。启动时只清理完整匹配的遗留 marker，未完成投递仍从 Team 原始债务重建，不伪造成功或新请求。空闲 live child 也在 maintenance 内执行；正在运行的 child 仍须在异步授权后重验精确身份。生命周期释放由现有 Team 后代目录调用官方 drain，不建立第二个 Activation 或私有 AgentHandle 所有权表。
+
+Captain 与活跃成员可用 `agent_swarm_public_post(request_id,text)` 主动发起第一条公开消息或发布简短进度、阻塞与结果；工具作者只取精确执行 Session。它复用 v2 文本记录，省略 `replyTo`，不请求投递、不创建任务、不唤醒其他成员；已有消息的答复仍用要求有效 `reply_to` 的 `agent_swarm_public_reply`。两种工具共用 Team、作者与 requestId 的幂等空间、容量和事务围栏，等待 Team 锁后再次检查执行身份、取消与 runtime 生命周期。回执提交与 lineage IO 竞争导致的 `TEAM_REVISION_CONFLICT` 仅在工具内部重读并完整校验，最多三次 admission，固定最初 Team、Captain、作者、请求号和内容；其他错误或持续冲突原样返回，Domain CAS 不放宽。当前身份行为提示向新旧成员说明何时公开回报，内部 mailbox、个人 Session 输出和私有记忆不自动公开。
+
+这是 v2 Agent 文本语义的扩展；v1 历史及 v3 图片的引用约束保持原样。旧 Host 中强制所有 Agent 消息带引用的 validator 无法读取新增独立发言。部署须保留升级前的一致数据备份；首条独立发言落盘后，回退必须保留兼容读取能力，或在保留升级后数据的前提下恢复明确选定的升级前快照，不能直接换旧包并宣称数据兼容。
 
 多提及沿用 `/swarm-public` 的认证与目标读取边界，增加 `v2/history`、`v2/append`、`v2/requestResult`、`v2/directory`。版本适配只选择严格输入解析和输出投影，认证、请求查询、事务、分页及投递继续共用原 owner。v2 追加字段为 `schemaVersion: 2`、`target {rootSessionId, teamId}`、`requestId`、有序 `content` 和可选 `replyTo`。结构段只有 `{type: 'text', text}` 与 `{type: 'mention', memberId}`；`memberId` 是当前 Captain 或成员的精确 Session ID，完整身份为 `(teamId, memberId)`，不建立另一份身份表。wire 不接受作者、label、parent、frame 或独立收件人数组。
 
@@ -230,7 +269,7 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 新持久记录带 `formatVersion: 2`，保存规范化 content、Host 生成的 `mentionLabels [{memberId, label}]`、一致的渲染正文和版本化投递集合；旧记录保持原字段、原摘要和 frame v1，不批量改写。新的人类消息一次事务保存全部接收人的 `recipientSessionId`、`parentSessionId`、`frameVersion`、完整 frame 及初始 queued 状态；新 frame 明确标识版本 2。Agent 公开回报仍为不请求投递。wire 只投影接收人、公开状态、时间及原因，不暴露 parent、frame 或摘要。沿用文本字节、消息数及 aggregate 总字节上限，结构段数另设并返回 Host limits；接收人数受当前合法 roster 与 Captain 限制，总容量计算包含全部 frame 和最大回执预留，不能部分追加。
 
-逐人状态为 queued、带 `claimedAt` 的 claimed，或带 `settledAt` 和 `recipient-removed` / `team-archived` 原因的 not-delivered。确认退出终态前，既有 delivery owner 的同一串行段必须排除在途 admission 并读回耐久 frame；claimed 证据优先结清，只有已证明 absent 且域内身份移除或 Team 归档才可标记 not-delivered。进程内 map 为空不证明未投递，pending、unknown、临时离线和读取失败不能转为永久终态，也不能重投。成员投递复用原 managed recovery：先恢复精确 Main，通过 Core `withContinuableChild` 的 callback lease 恢复并保活 Captain，再由现有 `subagents.prompt` 只提交真实成员输入；不制造父消息、不绕过 subagent ownership、不增加恢复循环。callback 使用 lease signal，真实后代的既有 ownership 接续父级保活。该 Host API 由 `patches/@deepseek-ai__dsh-subagent@0.1.5-alpha.2.patch` 对固定发布包增加；补丁来自 Core 的实际构建代码和类型声明，不新增 Remote 或模型工具。运行环境须装入匹配的 Core 产物，仅安装 Swarm 包不会替换宿主依赖。
+逐人状态为 queued、带 `claimedAt` 的 claimed，或带 `settledAt` 和 `recipient-removed` / `team-archived` 原因的 not-delivered。确认退出终态前，既有 delivery owner 的同一串行段必须排除在途 admission 并读回耐久 frame；claimed 证据优先结清，只有已证明 absent 且域内身份移除或 Team 归档才可标记 not-delivered。进程内 map 为空不证明未投递，pending、unknown、临时离线和读取失败不能转为永久终态，也不能重投。成员投递复用原 managed recovery：先恢复精确 Main，再经本节 `withLiveChild` 的官方恢复与 maintenance 组合取得 Captain，随后通过官方 host queue/steer 提交真实成员输入；transport marker 不成为父级模型输入，不绕过 subagent ownership、不增加恢复循环。callback 使用组合的取消信号，真实后代的既有 ownership 接续父级保活。该 Host API 取自官方 exports 子路径 `@deepseek-ai/dsh-subagent/internal`（`queueHostSubagentPrompt`、`steerHostSubagentPrompt`、`isAdjacentAgentSendMessageTool`）与官方 continuation activation，不新增 Remote 或模型工具，也不依赖插件仓库的补丁；运行环境须装入匹配的官方 Core 产物。
 
 请求唯一键跨版本保持 Team、真实作者与 requestId；只有摘要算法按版本分派。先验证当前认证和目标可读 scope，再查原作者的已提交记录，存在时按原版本摘要核验并返回冻结事实；当前接收人、归档及容量检查只约束新提交。v2 接受新消息；v1 append 仅返回已提交且原摘要一致的 v1 请求，未找到则返回明确版本错误，不创建新 legacy 消息。v1 requestResult 对不存在返回真实 not-found，命中 v2 则版本错误；v1 history 的所请求页面含 v2 记录时整页版本错误，不能丢行或伪造单 Captain 结果。v2 统一投影新旧记录并保留原格式版本，旧正文作为字面文本段、旧意图作为单接收人投影，不重扫或重建旧 frame。
 
@@ -250,7 +289,7 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 新提交复用现有 `withPublicAdmissionFence`：重读真实作者与目标，先查询原 requestId 并比较摘要，再执行整批官方 admission，之后重验取消、运行时、成员与 Team revision，最后由同一 Domain transaction 保存消息、原始引用、请求凭据及全部接收人意图；事务内再查唯一请求。摘要绑定有序规范化内容、每张原始解码字节的 SHA-256、声明 MIME/name 和 replyTo，不能用 normalization 后的字节替换原请求身份。原请求命中不再次上传或 admission。投递 kick 在 fence 外执行。附件失败不提交半条公共消息；跨 Attachment 与 Team storage 没有联合事务，崩溃或取消可能留下不可达官方对象，不能宣称跨存储回滚。
 
-每名接收人的实际输入投影在首次确定能力后耐久冻结：已支持为完整有序原图 refs，明确不支持为官方 `textOnlyImageText` 与受控图片 ID，未知则保持 deferred。恢复不按最新能力切换既有投影；若当前模型已不能接收冻结图片则保持明确待处理。Human 输入保留 `kind: user` 与稳定 rpcId，协助输入使用真实 plugin 来源。Host 在当前 fence、有效 Captain lease 内重验身份和图片完整性，通过固定 alpha.2 的已发布 internal `steerHostSubagentPrompt` 使用官方生命周期，不伪造 Agent 作者、不修改 Core 或绕过能力检查。
+每名接收人的实际输入投影在首次确定能力后耐久冻结：已支持为完整有序原图 refs，明确不支持为官方 `textOnlyImageText` 与受控图片 ID，未知则保持 deferred。恢复不按最新能力切换既有投影；若当前模型已不能接收冻结图片则保持明确待处理。Human 输入保留 `kind: user` 与稳定 rpcId，协助输入使用真实 plugin 来源。Host 在当前 fence、有效 Captain lease 内重验身份和图片完整性，通过官方 exports 子路径 `@deepseek-ai/dsh-subagent/internal` 的 `steerHostSubagentPrompt` 使用官方生命周期，不伪造 Agent 作者、不修改 Core 或绕过能力检查。
 
 Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层条件。相同身份但文字、来源、图片数量、顺序或原 refs 不一致为 unknown，优先于任何 claimed；只有完整匹配的持久 claimed 才结清，完整 pending 继续等待，证明身份 absent 才能投递。live、flush 后及冷恢复共用这一判断。文字标记存在不能证明图片已收到，也不能将不完整消息误判 absent 后重复发送。v3 的 queued 接收人可带有限 `deferredReason`：`image-capability-unknown`、`image-model-unsupported`、`image-unavailable`、`projection-mismatch` 或 `recipient-unavailable`，由现有投递 owner 耐久更新；相同原因不重复更新 revision，claimed/settled 清除原因。UI 显示明确的等待原因，不暴露原始存储或 Provider 错误，旧 v2 合同不变。
 
@@ -304,6 +343,8 @@ save/control 使用 `goal/v1`、独立 expectedLifecycleRevision CAS（尚未启
 
 维护只采用本轮真实结束时间加固定间隔，范围 60 秒至 7 天；不叠加墙钟 cron、不重叠开轮，停机错过多个周期只产生一个当前轮次。nextDueAt 与 trigger 是持久权威，复用现有调度队列和每 Team 一个最早到期的单次 timer，缓存可在启动扫描时重建。空任务板的待命 Team 也须恢复到期检查；准确 Main→Captain 官方恢复保持原身份，不裸 resume child，不另建后台 job、任务板或消耗账本。首版自主推进为 adaptive；live workflow owner 持有时延后，释放并确认 Team 仍 active 后才恢复。workflow-only 可保存和暂停，自主开始/继续明确能力未提供。
 
+协调唤醒在 Captain maintenance 内完成原通知 admission，不等待被该 maintenance 阻止的自身 inbox claim，也不提前 ACK；退出子代理操作的串行段后，只按原 Team、收件人和消息身份核对耐久 claim 并结清原债务。取消信号传入该次完整调度，Provider 等待后、claim/retry 事务 guard、执行根准备后和官方投递均重新检查；取消保留已提交的 reserved attempt 与执行根债务，交既有恢复路径处理。`create_task` 保存 Task 后等待本次调度 admission，再返回工具结果，以维持实际 Captain 执行窗口；不等待成员完成。失败返回明确的已提交 admission 错误并要求读回任务板，不能假称 Task 回滚；Provider 内重入仍通过原调度上下文排队后继，避免等待自身。
+
 到期恢复或投递暂时失败时，同一 timer 在本次 wake 结束后按至少 1 秒间隔重查原 trigger 与尚未结清的通知，不因 wake Promise 已完成就视为协调成功；同一债务的反复观察不推迟既有重试。已 claim 的通知只补原回执，不再发送模型输入；回执已结清但 Captain 尚未确认协调时不自动催问。等待 Main/Captain 恢复后再次检查原 Team 身份、trigger、预算及运行权，暂停、归档、workflow owner 接管、预算耗尽或插件关闭即停止该轮自主重试。若实际 claim 之后，Captain 的协调事务先把同一通知置为 obsolete，投递仅在 acknowledge 的精确阶段冲突后重新核对同一 id、kind、目标 Session 和完整 frame，保留该终态及其原因、时间；其他错误继续按原投递或启动失败合同处理。
 
 维护开始/继续要求有限 tokenLimit 且严格大于最新 usedTokens，同时满足现有 request/retry/deadline 限制；requestLimit 统计的是 attempt seating，不是模型请求次数。表单可提交“团队 Token 总上限（含已使用）”及 expectedTokenLimit（无上限为 null），在同一 Team transaction 中比较原上限、复用现有预算校验并保留用量/其他限制，再检查开始条件和保存状态/通知；不能先调用独立 setBudget 再冒称原子开始。开始前折叠已有 Session usage；运行仍遵循原有用后计量与准入门，不承诺生成硬封顶，不自动加预算、退款、重置或按轮清零。耗尽保留同一意图/到期事实并等待预算恢复，不自旋。
@@ -313,6 +354,39 @@ save/control 使用 `goal/v1`、独立 expectedLifecycleRevision CAS（尚未启
 Captain 用显式 cancel_task 终结废弃的非终态 Task；保存真实原因、actor、时间和可重放身份，旧 attempt stale，只清执行权，保留 output、evidence、来源与历史，预算不退款。不得在 CAS 前中断；若实际中断，复用原 Team 事务锁，在持久成功后、解锁前执行同步收尾，复核锁内捕获的 Agent、Session、turn 与旧 attempt，无法证明归属则跳过并如实报告。回执分别说明持久取消和实际中断；重放不再次中断，写失败绝不中断，收尾失败不暗示已提交取消回滚。所有新 claim/retry 仍使用同一原事务锁，模型自领在真正 seating 时重查 exec 失效，防止被取消但原先排队的旧工具领取新任务。Captain 自己持有的 Task 不通过 ancestor interrupt 中断自身工具。
 
 群头沿用一行目标摘要及折叠展开，展开内显示结果、标准、约束、方式、下一步/等待原因和一个当前主要动作。目标编辑草稿及未知操作按 Host/Main/Team 隔离保存，晚到结果只结算原操作，不清其他 Team 或较新的草稿；订阅现有 dashboard 的刷新/重连 owner，不另加轮询。目标、任务和聊天的提交反馈分开，既有个人 Chat、模型路由和官方 Stop 继续可用。工程、真实模型、浏览器、冷恢复与生产安装分别验收。
+
+### 8.6 选择性感知与公开协作目标合同
+
+以下是待实现的增量合同，拟用名称仅表示职责，不代表当前工具已经注册。旧 public_post/public_reply 的无唤醒默认、旧 send_message 的 quiet/wakeup、已有视觉协助及版本化 Host RPC 继续遵循原合同。通用协作先交付公开原文读取与定向请求/回应，再扩展相关变化感知。
+
+| 拟接入面 | 身份及输入 | 结果与边界 |
+|---|---|---|
+| publicHistory / publicMessage | 实际 Agent 绑定的当前 Team；有界 cursor 或精确公开 messageId | 同队公开原文、作者、replyTo、公开 imageId/元数据与覆盖范围；剥离原 attachment ref、requestId、frame，不复用浏览器操作者身份或返回他人个人 transcript |
+| requestCollaboration | 活跃成员或 Captain；稳定 requestId、明确接收人 ID、问题、原公开消息、可选 task/attempt 与制品版本、期限 | 原公开记录及同提交内的定向投递意图；公开成功、准入、交付、消费及回答各自可读 |
+| replyCollaboration | 原请求中实际收件人；原 requestId、回答及精确证据、稳定逻辑操作 ID | 公开回复关联原问题，向原请求者追加受控返回意图；不能伪造其他收件人的回答或自动完成任务 |
+| awarenessSnapshot / relevantChanges | 当前身份和 scope，由 Host 筛选本人任务、待答关系、重要决定及版本 | 有界摘要、来源 revision/水位、unknown、截断及重同步要求；完整证据按需读 |
+
+请求关系附着于原公共记录和既有投递记录，仅拥有参与者、期限、回复关联和结束事实，不建立第二张任务板。Team Task、attempt、制品与 Review Gate 仍分别负责执行归属及接受结论。新入口默认单个收件人，允许有界多选；文本里的 @name 不构成身份或授权。移除、换 Session、归档和取消在实际提交与投递前再次核验。
+
+公开读取同时限制条数、序号范围和序列化结果大小；过长原文采用明确偏移与继续位置按精确 ID 读取，不能静默截断后宣称已经读完。分页和单条读取都在异步 IO 前后复核同一真实 Agent/Session、scope、Team 及 Captain 绑定，读取不触发成员恢复、投递或任务创建。复用纯公开投影，不能调用浏览器操作者读取入口借权。源无历史、缺口、游标无效、消息不存在和权限拒绝分别表达，不返回假全文。
+
+C2 的唯一耐久投递是原公共记录的 recipient frame/outbox，由现有 `MessageDelivery.deliverPublicMessages` 管理；不再向内部 mailbox 复制同一请求的投递债务。原 mailbox 继续处理其已有独立同伴消息。额度检查、notBefore/期限及暂停检查进入现有公共准入和恢复 owner，不能因公开路径目前只检查身份/active 就绕过新增协作限制。
+
+公共协作与内部同伴消息共用同一 Team 的主动唤醒额度，从同一 aggregate 的原消息/投递事实计算；不能两条路径各自取得完整额度。当前 peerWakeupLimited 只扫描内部 messages，C2 必须补全公共协作证据再验混合流量，不另设额度数据库或恢复循环。
+
+同一 requestId 绑定精确发送者、Team、接收人集合、正文/引用/版本与期限；重试相同内容读回原结果，改变内容返回冲突。公共记录和待投递意图经同一 Team mutation 提交后才发布，delivery 使用既有稳定去重键。若当前存储拆分形式不能保证这一提交，则该切片阻塞于存储能力，不能用连续两次 put 冒充事务。官方 Session 消费后的确认丢失须沿原 delivery 的去重/回执核对，不承诺任意外部工具 effect 恰好执行一次。
+
+回复只对原请求者形成一次相关唤醒，不能触发全员广播。已关闭、过期或身份失效的请求保留历史；迟到结果可以显式标记为迟到，但不产生新自主回合或改写结论。澄清与修订需要可追踪的新操作及剩余预算。默认不自动链式转交，升级到 Captain 有次数和期限限制。限流后的显式请求保存到期及最早可重试信息，由现有恢复/准入 owner 管理；旧 quiet 消息不因此获得新自动唤醒语义。
+
+每条回复以 `(requestId, replyOperationId, 实际回复者身份)` 绑定其不可变正文和证据；相同逻辑重试读回原回复，内容改变返回冲突。不同收件人的回答分别保存，重试不增加公开记录或返回意图。仅原请求者或本队 Captain 可明确关闭请求，必须绑定预期协作修订；到期由原恢复 owner 提交到期事实。回答本身不自动代表所有接收人已回答或请求已完成。关闭与回复竞态由同一提交边界串行判断，不撤销已提交的历史。
+
+Team 持久暂停期间不准入新的自主协作唤醒，包括没有 task/attempt 的请求及其待重试投递；新请求可保存为明确暂停待交付，不以绕过 task seating 的方式执行。暂停前已有合法 attempt 的答复与既有控制消息继续按收尾合同处理，不因此生成后续自主请求。继续时重验身份、期限、预算及当前版本；已过期请求不唤醒。官方单次 Stop 只取消其精确执行，不伪装成 Team 持久暂停，也不自动重放被停止的执行；未知在途结果先按现有回执核对，新执行须经过原恢复准入。
+
+感知上下文以 scope + Team + 实际 Session + 当前任务/请求关联确定选集，版本不以 observedAt 推进。模型路由、工具、Skills、成员资料和任务分别验证各自来源；未知具体工具调用授权保持 unknown。通知仅表示来源变化，重读成功后才替换当前投影；超出保留窗口、来源回退或丢失要求快照重同步，不能把空结果解释为已追平。撤权和切身份清除旧贡献；压缩、冷恢复后重建当前合法选集。
+
+公开材料、资料、记忆及技能来源是可被引用的数据，不能自行提升为高优先级规则。收到消息、模型请求含有消息、明确回答、交叉审查、Captain 接受当前版本是不同事实。首轮独立意见保留原记录；后续改变意见须引用新证据，不能用人数多数代替原业务验收。
+
+最低真实验收为：两名成员独立发表意见 → A 读取 B 的公开原文并定向提问 → B 空闲时被实际唤醒并回应 → A 收到返回并引用证据修订 → Captain 按当前制品审核。另验重复、忙碌限流、旧 quiet、超时、冷恢复、换身份与跨队拒绝；关闭浏览器后链路仍可推进。是否选对人和是否解决问题必须另外评价，工具成功不能代替这两项。
 
 ## 9. Review、execution root 与可选桥接
 

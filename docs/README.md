@@ -12,9 +12,16 @@
 6. [07-implementation-roadmap.md](07-implementation-roadmap.md) — Team 协作、个人记忆与独立 Skills 管理的统一开发方案、切片依赖与验收出口。
 7. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
 
+## 团队效率与通信标准
+
+- [效率计量标准](08-testing-verification.md#团队效率计量标准)：时间分段、token/缓存、模型与工具计数、失败去重、比较方法和观察条件。
+- [通信交互约定](04-core-protocol.md#51-通信交互与效率约定)：有效回执阶段、精简派工、正式更正边界及错误恢复。
+- [现场反馈模板](13-self-hosting-dogfood.md#效率问题反馈)：向统筹者提交可定位、可比较的脱敏效率案例。
+
 ## 架构与兼容
 
 - [01-dsh-principles.md](01-dsh-principles.md) — DSH 插件与 capability seam 原则。
+- [12-official-interface-architecture.md](12-official-interface-architecture.md) — 官方接口清单、历史补丁耦合的处置与兼容验证规则；插件只使用官方接口。
 - [02-reference-analysis.md](02-reference-analysis.md) — 官方 DSH 与两个固定参考源的角色。
 - [05-jiuwen-feature-mapping.md](05-jiuwen-feature-mapping.md) — 外部概念到 DSH seam 的映射与不采纳项。
 - [06-workspace-distributed.md](06-workspace-distributed.md) — execution root、远程成员和分布式边界。
@@ -38,6 +45,7 @@
 | 产品目标、范围、非目标 | [GOALS.md](GOALS.md) |
 | 用户体验与身份拓扑 | [00-vision.md](00-vision.md) |
 | 服务/Provider/Consumer ownership | [03-capability-family.md](03-capability-family.md) |
+| 官方接口、seam 与降级处置 | [12-official-interface-architecture.md](12-official-interface-architecture.md) |
 | UI 布局、组件层级、显示与交互 | [10-team-ui-layout.md](10-team-ui-layout.md) |
 | 状态机、错误、并发与权限合同 | [04-core-protocol.md](04-core-protocol.md) |
 | Workspace 与 distributed 语义 | [06-workspace-distributed.md](06-workspace-distributed.md) |

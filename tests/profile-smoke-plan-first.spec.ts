@@ -41,6 +41,8 @@ function run(args: string[], env: Record<string, string>, cwd: string, timeoutMs
   return { status: res.status ?? -1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
 }
 
+const yamlStr = (value: string): string => "'" + value.replace(/\\/g, '/') + "'"
+
 describe.skipIf(!LIVE)('P0-2 real clean-Profile live dogfood (DSH + dsh-agent-swarm + dsh-rlm)', () => {
   it('runs the Plan-first staged flow end to end with a real model', { timeout: 15 * 60_000 }, () => {
     expect(fs.existsSync(BIN), 'harness bin.ts not found; set RLM_DSH_REPO_ROOT').toBe(true)
@@ -60,7 +62,6 @@ describe.skipIf(!LIVE)('P0-2 real clean-Profile live dogfood (DSH + dsh-agent-sw
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
     manifest.dsh = { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless', 'dsh-agent-swarm'] } }
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
-    const yamlStr = (value: string): string => "'" + value.replace(/\\/g, '/') + "'"
     const patch = [
       '# P0-2 live dogfood headless: swarm + new rlm + storage services.',
       '- id: session-persistence-jsonl',
@@ -96,7 +97,6 @@ describe.skipIf(!LIVE)('P0-2 real clean-Profile live dogfood (DSH + dsh-agent-sw
     const r = run(['--profile', PROFILE, task], env, REPO, 12 * 60_000)
     expect(r.status, 'headless run failed; stderr: ' + r.stderr.slice(-4000)).toBe(0)
     expect(r.stdout, 'SWARM_P02_OK missing; stdout tail: ' + r.stdout.slice(-800)).toMatch(/SWARM_P02_OK\s+\d+/)
-    // eslint-disable-next-line no-console
     console.info('P0-2 live fallback provider/model note: RLM_LIVE_PROVIDER=' + PROVIDER + ' RLM_LIVE_MODEL=' + MODEL)
   })
 })

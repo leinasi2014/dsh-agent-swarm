@@ -18,8 +18,7 @@ it.each(['complete', 'cancel'] as const)('keeps real input queued during cold ma
   const gate = new Promise<void>(resolve => { release = resolve })
   try {
     const { root, captain } = await createTeam(f, sandbox)
-    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
-    expect(f.ctx.agents.get(captain.id) === undefined).toBe(true)
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
     const before = adapter.requests.filter(request => request.sessionId === captain.id).length
     const controller = new AbortController()
     let active: Agent | undefined
@@ -44,9 +43,7 @@ it.each(['complete', 'cancel'] as const)('keeps real input queued during cold ma
       await expect(pending).rejects.toThrow('cancel only this transport operation')
     } else { release(); expect(await pending).toBe('maintained') }
     await active!.whenIdle()
-    // Assert a scalar: formatting a live Cordis Agent probes undeclared injections
-    // and masks the actual lifecycle failure on a busy CI runner.
-    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id) === undefined).toBe(true), { timeout: 5_000 })
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
     const requests = adapter.requests.filter(request => request.sessionId === captain.id).slice(before)
     expect(requests).toHaveLength(1)
     expect(JSON.stringify(requests)).toContain('REAL INPUT AFTER MAINTENANCE')
@@ -63,8 +60,7 @@ it('settles the caller when both maintenance admission and marker cleanup fail',
   let off: (() => void) | undefined
   try {
     const { root, captain } = await createTeam(f, sandbox)
-    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
-    expect(f.ctx.agents.get(captain.id) === undefined).toBe(true)
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
     const before = adapter.requests.filter(request => request.sessionId === captain.id).length
     off = f.ctx.on('agent/session-start', ({ agent }) => {
       if (agent.id !== captain.id) return
@@ -87,8 +83,7 @@ it('removes only complete plugin transport markers and preserves lookalike user 
   const f = await setup(sandbox, new Recording())
   try {
     const { root, captain } = await createTeam(f, sandbox)
-    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
-    expect(f.ctx.agents.get(captain.id) === undefined).toBe(true)
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
     await withLiveChild(f.ctx, root, captain.id, SIGNAL, async child => {
       const text = 'Agent Swarm transport maintenance v1: 00000000-0000-4000-8000-000000000001'
       const orphan = createUserMessage({ source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, content: [{ type: 'text', text }] })

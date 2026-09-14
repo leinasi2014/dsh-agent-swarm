@@ -39,6 +39,23 @@ import {
 } from './identity-profile.js'
 import { normalizeAllowedSkills } from './team-skill-policy.js'
 
+/**
+ * Serialized compare-and-swap diagnostic shared by the captain identity,
+ * announcement and public-goal entries, and by the member-profile window CAS:
+ * reports the expected and current revisions plus the CAS scope, declares that
+ * the failed call wrote nothing, and guides the caller to re-read the Team
+ * status and retry at most once. Thrown after identity/role verification, so an
+ * unauthorized caller never reaches it and never learns the current revision.
+ */
+function revisionConflictDiagnostic(expected: number, current: number, scope: string = 'team revision conflict'): never {
+  throw new TeamDomainError(
+    `${scope}: expected ${expected}, current ${current}; nothing was written by this call;`
+    + ' re-read agent_swarm_status to confirm the intended change, then retry at most once with the fresh revision;'
+    + ' on a second conflict, stop retrying the same way',
+    'TEAM_REVISION_CONFLICT',
+  )
+}
+
 export async function createTeam(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -427,7 +444,7 @@ export async function setCaptainProfile(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can set the Team profile', 'TEAM_CAPTAIN_REQUIRED')
-    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    if (team.revision !== expectedRevision) revisionConflictDiagnostic(expectedRevision, team.revision)
     assertAvatarProfile(team.captainProfile, profile)
     const timestamp = deps.now()
     Object.assign(team, { captainProfile: { ...team.captainProfile, ...profile }, revision: team.revision + 1, updatedAt: timestamp })
@@ -436,7 +453,26 @@ export async function setCaptainProfile(
   return structuredClone(committed)
 }
 
-/** Member-owned personal identity; the Captain may update only the profession. */
+/**
+ * Member-owned personal identity; the Captain may update only the profession.
+ *
+ * CAS scope. `expected_revision` is a Team revision the caller actually read.
+ * A member row whose profile has NO verified change history (`profileChanged-
+ * AtRevision` absent: pre-feature rows, fresh recruitment, Captain-set-at-
+ * creation) keeps the exact global-revision compare-and-swap — an unknown
+ * history can never be partially overwritten by a stale observation. The first
+ * successful save under that exact CAS establishes the verifiable version: it
+ * stamps the marker with the committing revision. From then on the marker
+ * bounds a profile window: a later save passes while `marker ≤ expected ≤
+ * team.revision`, so unrelated Team activity advancing the global revision no
+ * longer evicts the member's own saves, while any change to THIS profile past
+ * the caller's observation (marker > expected) and any ahead-of-Team
+ * observation (expected > team.revision) still fail loud with
+ * TEAM_REVISION_CONFLICT. Every accepted save re-stamps the marker, and the
+ * save still commits as a normal board transition advancing the global
+ * revision exactly as before, so `waitForChange`/status consumers keep every
+ * notification.
+ */
 export async function setMemberProfile(
   deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, captainSessionId: string,
   expectedRevision: number, name: string, input: MemberIdentityInput,
@@ -451,15 +487,25 @@ export async function setMemberProfile(
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain' || authority.name === memberName, 'only the captain can set another member profile', 'TEAM_CAPTAIN_REQUIRED')
     if (authority.role === 'captain') assertRecruitmentIdentity(input)
-    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const member = team.members.find(candidate => candidate.name === memberName)
     expectDomain(member !== undefined, `member "${memberName}" does not exist`, 'TEAM_MEMBER_NOT_FOUND')
+    const profileVersion = member.profileChangedAtRevision
+    if (profileVersion === undefined) {
+      // No verifiable own profile version yet: the safe boundary is the exact
+      // global revision CAS. This first accepted save establishes the version.
+      if (team.revision !== expectedRevision) revisionConflictDiagnostic(expectedRevision, team.revision)
+    } else if (team.revision < expectedRevision || profileVersion > expectedRevision) {
+      revisionConflictDiagnostic(expectedRevision, team.revision,
+        `member profile revision conflict (this member profile last changed at revision ${profileVersion})`)
+    }
     assertAvatarProfile(member, profile)
     const displayName = profile.displayName ?? member.displayName ?? member.name
     expectDomain(!team.members.some(candidate => candidate !== member && (candidate.displayName ?? candidate.name) === displayName),
       'employee identity already exists', 'TEAM_MEMBER_IDENTITY_TAKEN')
     Object.assign(member, profile)
-    Object.assign(team, { revision: team.revision + 1, updatedAt: deps.now() })
+    const nextRevision = team.revision + 1
+    Object.assign(member, { profileChangedAtRevision: nextRevision })
+    Object.assign(team, { revision: nextRevision, updatedAt: deps.now() })
     committed = team
   })
   return structuredClone(committed)
@@ -486,7 +532,7 @@ export async function publishAnnouncement(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can publish an announcement', 'TEAM_CAPTAIN_REQUIRED')
-    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    if (team.revision !== expectedRevision) revisionConflictDiagnostic(expectedRevision, team.revision)
     const existing = team.announcements ?? []
     expectDomain(existing.length < MAX_CAPTAIN_ANNOUNCEMENTS, 'announcement limit reached', 'TEAM_CAPTAIN_ANNOUNCEMENT_LIMIT')
     const timestamp = deps.now()
@@ -521,7 +567,7 @@ export async function setPublicGoal(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can set the public goal', 'TEAM_CAPTAIN_REQUIRED')
-    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    if (team.revision !== expectedRevision) revisionConflictDiagnostic(expectedRevision, team.revision)
     const timestamp = deps.now()
     if (team.goalLifecycle !== undefined) {
       reviseGoalInDraft(deps, team, { text: goal, acceptanceCriteria: team.goalLifecycle.acceptanceCriteria,

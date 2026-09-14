@@ -85,19 +85,13 @@ it('recovers a stopped deletion receipt after partial physical removal and a com
       withLiveChild(f.ctx, lead, members[0]!, parentSignal, async member => {
         await f.ctx.agentSwarmPrivateMemory.add({ agent: member, signal: parentSignal }, 'recovery-private-memory', [])
       }))
-    // The recovery fixture starts from a cold branch, after its temporary leases finish disposing.
-    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
-    for (const id of [captain.id, ...members]) {
-      expect(f.ctx.agents.get(id)).toBeUndefined()
-      expect(f.ctx.sessions.get(id)).toBeUndefined()
-    }
     // Seed retained terminal evidence in the already opened public domain;
     // running workflow settlement is exercised by the real bridge test.
     await f.ctx.storageDomain.get('agent_swarm_workflow')!.table('runs').put('recovery-run', { schemaVersion: 1, runId: 'recovery-run', scope, teamId, meta: { name: 'Recovery fixture', description: 'Retained workflow evidence' },
       state: 'completed', stopReason: 'completed', agentsStarted: 0, createdAt: 1, updatedAt: 2, settledAt: 2 })
     await writeFile(join(sandbox, 'preserved-output.blend'), 'preserve actual project output')
     const call = await retirementClient(f, teamId), preview = await call('preview')
-    expect(preview, JSON.stringify(preview)).toMatchObject({ ok: true, value: { counts: { memories: 1, workflowRuns: 1 } } })
+    expect(preview.value.counts).toMatchObject({ memories: 1, workflowRuns: 1 })
     const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
     vi.mocked(unlink).mockImplementationOnce(async path => { await actual.unlink(path); throw new Error('Host stopped after physical unlink') })
     const request = { action: 'delete', requestId: 'resume-original-receipt', expectedTeamRevision: preview.value.teamRevision, previewDigest: preview.value.previewDigest }

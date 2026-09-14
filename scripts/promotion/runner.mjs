@@ -61,6 +61,7 @@ const CMD_SHIMS = new Set(['pnpm', 'npx', 'pnpx', 'yarn'])
  * directly so process-tree teardown stays precise.
  */
 export function run(command, args, options = {}) {
+  if (options.candidate !== undefined) return options.candidate.run(command, args, options)
   const timeoutMs = options.timeoutMs ?? LANE_TIMEOUT_MS
   const useShell = process.platform === 'win32' && CMD_SHIMS.has(command)
   const quote = value => /[\s"^&|<>()!]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
@@ -140,7 +141,8 @@ export async function extractTarball(tarballPath, destDir) {
  * checkout of a commit); callers still record `git status --porcelain` as
  * freeze evidence.
  */
-export async function withDetachedWorktree(repo, commit, fn, label = 'agent-swarm-lane') {
+export async function withDetachedWorktree(repo, commit, fn, label = 'agent-swarm-lane', candidate) {
+  if (candidate !== undefined) return candidate.withSource(repo, commit, fn)
   const base = await mkdtemp(join(tmpdir(), `${label}-`))
   const worktree = join(base, 'wt')
   const add = await git(repo, ['worktree', 'add', '--detach', worktree, commit])
@@ -178,7 +180,34 @@ export async function waitUntil(predicate, { timeoutMs = 60_000, intervalMs = 25
  * health route. Returns the live child plus probe evidence; the CALLER owns
  * teardown via `stopPlane` (bounded tree kill + port-free check).
  */
-export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [], cwd, env = {} }) {
+export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [], cwd, env = {}, candidate }) {
+  if (candidate !== undefined) {
+    const child = await candidate.start(process.execPath, cliLaunchArgs(cli, ['--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs]), {
+      cwd, env: { DSH_HOME: home, ...env }, timeoutMs: LANE_TIMEOUT_MS,
+    })
+    let stdout = '', stderr = ''
+    // Register immediately so a native poll failure cannot become an unhandled
+    // rejection while the readiness probe is waiting.
+    let failure
+    const done = child.done.then(result => { stdout = result.stdout; stderr = result.stderr; return result }, error => { failure = error })
+    const startedAt = Date.now()
+    const ready = await waitUntil(async () => {
+      if (failure !== undefined || child.exitCode !== null) return false
+      stdout = await child.stdout(); stderr = await child.stderr()
+      try {
+        const response = await fetch(`http://${host}:${port}/api/host.describe`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'client-request', rpcId: 'm3c-boot-probe', method: 'host.describe', payload: {} }),
+          signal: AbortSignal.timeout(2_000),
+        })
+        const body = await response.json()
+        return response.status === 200 && body?.result?.ok === true
+      } catch { return false }
+    }, { timeoutMs: readyTimeoutMs, intervalMs: 500 })
+    return { child, ready, bootMs: Date.now() - startedAt, stdout: () => stdout, stderr: () => stderr,
+      stop: async () => { await child.stop(); await done; if (failure) throw failure; return { exited: true, code: child.exitCode } },
+    }
+  }
   const child = spawn(process.execPath, cliLaunchArgs(cli, ['--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs]), {
     cwd,
     env: laneEnv({ DSH_HOME: home, ...env }),
@@ -210,6 +239,7 @@ export async function bootPlane({ cli, home, profile = 'web', port, host = '127.
 
 /** Bounded teardown of one booted plane: tree kill, wait exit, port free. */
 export async function stopPlane(boot, { waitExitMs = 20_000 } = {}) {
+  if (boot.stop !== undefined) return boot.stop()
   if (boot.child.exitCode !== null) return { exited: true, code: boot.child.exitCode }
   killTree(boot.child.pid)
   const exited = await new Promise(resolve => {

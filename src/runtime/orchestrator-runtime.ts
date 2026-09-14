@@ -44,7 +44,6 @@ import { TeamDirectory } from './team-directory.js'
 import { TeamRetirement } from './team-retirement.js'
 import { WorkRequestSurface } from './work-request-surface.js'
 import { GoalRuntimeSurface } from './goal-runtime-surface.js'
-import { MemberChat } from './member-chat.js'
 
 export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
@@ -56,7 +55,6 @@ export class AgentSwarmRuntime extends Service {
   readonly work: WorkRequestSurface
   readonly goals: GoalRuntimeSurface
   readonly retirement: TeamRetirement
-  readonly memberChat: MemberChat
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -87,7 +85,6 @@ export class AgentSwarmRuntime extends Service {
   readonly executionRoots: ExecutionRootSurface
   private closing = false
   private readonly publicAbort = new AbortController()
-  get closingSignal(): AbortSignal { return this.publicAbort.signal }
   /** @internal Optional isolated workflow engine; consume via ctx.agentSwarmWorkflow.start(). */
   workflowBridge?: TeamBridgeWorkflowEngine
   /** Optional caller-scoped read projection; it owns no task lifecycle or ctx.jobs Provider. */
@@ -134,8 +131,6 @@ export class AgentSwarmRuntime extends Service {
       goalAllowed: (scope, teamId) => this.goals.allowed(scope, teamId),
     })
     this.memberProfiles = new MemberProfileReader(ctx)
-    this.memberChat = new MemberChat(ctx, { root: (main, scope) => this.activationRecovery.ensurePublicRoot(main, scope),
-      fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation) })
     this.schedulingPass = new SchedulingPass(ctx, {
       domain: () => this.domain,
       delivery: () => this.delivery,
@@ -533,7 +528,12 @@ export class AgentSwarmRuntime extends Service {
 
   observeSessionEvent(session: Session, event: SessionEvent): void { this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event); this.captainProvisioning.observeSessionEvent(session, event) }
 
-  /** Evidence-only stranded-ownership hint (issue #12 / F10: `stranded=idle-holder` while the owner is live and idle, `stranded=owner-not-live` when cold); delegates to the scheduling pass and never mutates authoritative state. */
+  /**
+   * Evidence-only stranded-ownership hint consumed by the status projection
+   * (issue #12 / F10): `stranded=idle-holder` while the owner is live and
+   * idle, `stranded=owner-not-live` when it is cold. Never mutates
+   * authoritative state — decisions in docs/04 §8c.
+   */
   strandedEvidence(task: TeamTask): string { return this.schedulingPass.strandedEvidence(task) }
 
   private trackChild(captain: Agent, childId: string): void {

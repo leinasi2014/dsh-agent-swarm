@@ -43,6 +43,18 @@ export interface TeamMemberIdentityProfile {
 export interface TeamMember extends TeamMemberIdentityProfile {
   /** Prior failed provisioning Sessions, retained only for exact accounting. At most 64 retries. */
   readonly previousSessionIds?: string[]
+  /**
+   * Revision of the Team commit that last changed this member's identity
+   * profile fields — the member's verifiable own profile version. Absent
+   * means no save has been recorded under this protocol yet (pre-feature
+   * rows, fresh recruitment): the history is unknown, so `setMemberProfile`
+   * keeps the exact global-revision CAS until the first accepted save stamps
+   * this marker. From then on `expected_revision` is fenced against this
+   * window, so unrelated Team activity advancing the global revision never
+   * evicts the member's own save, while a concurrent change to THIS profile
+   * still conflicts loud.
+   */
+  readonly profileChangedAtRevision?: number
   readonly name: string
   readonly role: string
   readonly sessionId: string
@@ -329,6 +341,25 @@ export interface TeamPlanDraft {
   readonly tasks: readonly TeamPlanTask[]
 }
 
+/**
+ * One append-only change on an ACTIVE Team (issue #294 slice 1, docs/04
+ * §2.3): a stable change identity plus new member declarations and new
+ * tasks — never a member removal, identity replacement, running-config
+ * overwrite, or edit of the existing task graph. Appended tasks may only
+ * depend on tasks from the SAME append. `createdAt` and `resultingRevision`
+ * are Host-stamped audit facts of the committed change (absent on a
+ * pre-commit input); the durable record lives in the Team aggregate alone,
+ * so the audit fact reconstructs without a second state authority.
+ */
+export interface TeamAppendChange {
+  readonly changeId: string
+  readonly initiatedBySessionId: string
+  readonly members: readonly TeamPlanMember[]
+  readonly tasks: readonly TeamPlanTask[]
+  readonly createdAt?: number
+  readonly resultingRevision?: number
+}
+
 export interface TeamState {
   readonly workRequests?: TeamWorkRequests
   readonly workActivity?: TeamWorkActivity
@@ -351,6 +382,12 @@ export interface TeamState {
   readonly phase: TeamPhase
   /** Plan-first declaration; present only while phase === 'staged'. */
   readonly planDraft?: TeamPlanDraft
+  /**
+   * Append-only change records of an active Team (issue #294 §2.3), creation
+   * order. Presence of the key means a real append committed; records are
+   * never rewritten and absent means NO append (no fabricated backfill).
+   */
+  readonly appendChanges?: TeamAppendChange[]
   /** Terminal marker for a discarded staged plan. */
   readonly discardReason?: string
   readonly members: TeamMember[]

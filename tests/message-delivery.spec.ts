@@ -135,7 +135,8 @@ describe('target-side message de-duplication (F2)', () => {
    * not live until something cold-resumes it. This test reproduces those
    * facts without killing the process: the real `subagents.followup`
    * performs a real durable acceptance and the member's turn checkpoint
-   * claims it (1); a one-shot rejected `acknowledgeMessage` write leaves the
+   * claims it (1); rejected `acknowledgeMessage` writes keep the crash window
+   * open through the queued checkpoint and member drain, leaving the
    * aggregate queued — byte-identical durable state to an uncommitted ack
    * (2); draining the member after the claim makes the target cold for the
    * rescan, exactly like a reloaded process whose members have not resumed
@@ -208,10 +209,12 @@ describe('target-side message de-duplication (F2)', () => {
         return await followup(parent, childId, content, source, signal, delivery)
       })
 
-      // Crash-window injection: the FIRST store acknowledgement (the
-      // rescan's make-up over the durable claim) never commits.
+      // recoverAgent queues a pass; waitFor may enqueue another before the
+      // first finishes. Keep every ack rejected until all crash facts below
+      // are observed, so a queued retry cannot close the window prematurely.
+      const originalAcknowledge = ctx.agentSwarm.domain.acknowledgeMessage.bind(ctx.agentSwarm.domain)
       const acknowledge = vi.spyOn(ctx.agentSwarm.domain, 'acknowledgeMessage')
-      acknowledge.mockRejectedValueOnce(new Error('simulated crash before the delivered ack commit'))
+      acknowledge.mockRejectedValue(new Error('simulated crash before the delivered ack commit'))
 
       // Issue #52: the frame parks pending behind the held turn, so the send
       // acknowledges nothing and reports queued.
@@ -271,6 +274,8 @@ describe('target-side message de-duplication (F2)', () => {
 
       // The reload recovery rescan (schedulePass -> deliverQueuedMessage):
       // the claimed form persists cold, so the fold retries the make-up ack.
+      // Restore writes only now, keeping the same spy and its attempt count.
+      acknowledge.mockImplementation(originalAcknowledge)
       await ctx.agentSwarm.recoverAgent(lead)
       await vi.waitFor(async () => {
         const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)

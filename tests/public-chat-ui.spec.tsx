@@ -122,7 +122,8 @@ describe('public conversation composition', () => {
     expect(props.send).not.toHaveBeenCalled()
     await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true })) })
     expect(props.send).toHaveBeenCalledOnce()
-    expect(document.querySelector('[data-delivery="claimed"]')?.textContent).toContain('completion unconfirmed')
+    expect(document.querySelector('[data-delivery="claimed"]')?.textContent).toContain(t('public.claimed'))
+    expect(document.querySelector('[data-delivery="claimed"]')?.textContent).not.toContain('completion unconfirmed')
     expect(document.querySelector('button[data-public-send]')).not.toBeNull()
   })
   it.each(['binding', 'pending'] as const)('hides Team A messages and composer when the Team B %s is selected', async change => {

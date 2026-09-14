@@ -254,4 +254,4 @@ export function rpcCall(port: number, method: string, payload: unknown, options?
 
 export function listNodeProcessesWindows(): Promise<ProcessRow[]>
 
-export function acceptanceIsolation(drillDir: string, control: ControlRootLayout): { ok: boolean; violations: string[]; domains: { home: string; storageRoot: string; sessionsRoot: string; workspace: string; evidence: string } }
+export function acceptanceIsolation(drillDir: string, control: ControlRootLayout, executionRoot?: string): { ok: boolean; violations: string[]; domains: { home: string; storageRoot: string; sessionsRoot: string; workspace: string; evidence: string } }
