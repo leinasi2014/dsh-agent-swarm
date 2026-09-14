@@ -76,6 +76,19 @@ documentation:
   sharedAuthorityWriterCount: 1
   checks: pnpm-verify-governance
   liveStatusInCommittedMarkdown: forbidden
+  agentReadableFormat:
+    version: 1
+    methodReference: references/agent-readable-documentation.md
+    application: new-or-materially-revised-decision-bearing-sections
+    syntax: markdown-with-compact-scope-and-status-header
+    requirementIdentity: stable-ids-for-cross-referenced-rules-and-scenarios
+    decisionLabels: confirmed-requirement|existing-constraint|design-proposal|open-decision|superseded
+    evidenceLabels: observed-with-source-and-baseline|inference|unverified
+    ruleContent: actor-trigger-scope-action-outcome-and-relevant-failure-boundaries
+    readingOrder: purpose-terms-requirements-design-recovery-acceptance-open-decisions
+    corrections: merge-into-existing-registered-authority
+    examples: non-normative-unless-explicitly-adopted
+    validation: semantic-traceability-and-links-plus-existing-policy-checks
 
 executionProfiles:
   internal:

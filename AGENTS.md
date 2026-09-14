@@ -11,6 +11,10 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. There is no fixed repository writer-count cap: the coordinator schedules managed allocations by ready dependencies, exclusive write scopes, available resources, and integration capacity; read-only QA/investigation needs no writer allocation.
 6. The Team UI walking skeleton has passed the executable-outcome circuit breaker. The anti-duplication rule remains permanent: update the smallest registered authority and product/test surface; do not add a second design, ADR, diagram, receipt wrapper, oracle, or verifier for the same decision.
 
+## Agent-readable documentation
+
+Follow the documentation contract in [project-binding.yaml](docs/governance/project-binding.yaml) and the agile skill's `references/agent-readable-documentation.md` when writing or materially revising decision-bearing sections. Use the existing registered authority, a compact scope/status header, stable referenced requirement IDs, explicit actors and conditions, evidence-linked acceptance scenarios, and a separate open-decisions section. Distinguish confirmed requirements, existing constraints, proposals, and unknowns from implementation/verification evidence. Merge accepted corrections into the authoritative body; examples and research do not grant authority. Preserve existing architecture language and apply the format incrementally, without a second PRD or live status ledger.
+
 ## Project red lines
 
 - Use English as the primary language for `README.md` and public-facing repository documentation. Optional translations supplement the English entry point; existing architecture documents keep their established language unless their scope includes translation. Describe released capabilities, known limitations, and planned work accurately. Follow the user's language when communicating with them.

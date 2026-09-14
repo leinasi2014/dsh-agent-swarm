@@ -12,6 +12,10 @@
 6. [07-implementation-roadmap.md](07-implementation-roadmap.md) — Team 协作、个人记忆与独立 Skills 管理的统一开发方案、切片依赖与验收出口。
 7. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
 
+## 重构规范
+
+- [01 部门架构与资料室](refactoring/01-departments.md) — 部门与资料室的设计基线、失败恢复和第一版验收合同；员工性格及其他待决业务权利仍在能力文档 §10，定稿不代表功能已实现。
+
 ## 架构与兼容
 
 - [01-dsh-principles.md](01-dsh-principles.md) — DSH 插件与 capability seam 原则。
@@ -37,6 +41,7 @@
 |---|---|
 | 产品目标、范围、非目标 | [GOALS.md](GOALS.md) |
 | 用户体验与身份拓扑 | [00-vision.md](00-vision.md) |
+| 部门职责、资料室保存与引用设计 | [01-departments.md](refactoring/01-departments.md) |
 | 服务/Provider/Consumer ownership | [03-capability-family.md](03-capability-family.md) |
 | UI 布局、组件层级、显示与交互 | [10-team-ui-layout.md](10-team-ui-layout.md) |
 | 状态机、错误、并发与权限合同 | [04-core-protocol.md](04-core-protocol.md) |
