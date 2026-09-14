@@ -331,8 +331,8 @@ UI 资料卡、`@` 候选和显式 `agent_swarm_directory` 继续消费同一个
 
 本节使用两组独立标签：**〔需求〕**为用户已明确的要求，**〔约束〕**为既有项目规则，**〔建议〕**为待采用设计，**〔待决〕**为尚未确定的选择；**〔源码事实〕**仅说明指定实现，**〔推断〕**说明推理结论，**〔未验证〕**说明证据缺口。需求成立不证明实现完成；建议中的“必须”只描述该方案成立所需条件。
 
-- **CUR-01〔源码事实〕**：现有私有记忆分区使用 scope、Team 与成员 Session，见 [member-private-memory-service.ts](../src/runtime/member-private-memory-service.ts) 的 `OwningMember`。未来按部门、岗位、任职隔离是设计，不是该分区已支持的事实。
-- **CUR-02〔源码事实〕**：现有成员恢复核对 `stored.meta.parentSession` 与恢复队长的 ID，不一致返回失败并要求 drain，见 [member-provisioning.ts](../src/runtime/member-provisioning.ts)。**〔推断〕**只改管理员绑定不足以完成接管；本轮没有执行该故障的运行时实验。
+- **CUR-01〔源码事实〕**：现有私有记忆分区使用 scope、Team 与成员 Session，见 [member-private-memory-service.ts 的固定版本](https://github.com/leinasi2014/dsh-agent-swarm/blob/51ddbe29bf35f39064cd99269d824e0b3a9e856d/src/runtime/member-private-memory-service.ts#L36-L43) 中的 `OwningMember`。未来按部门、岗位、任职隔离是设计，不是该分区已支持的事实。
+- **CUR-02〔源码事实〕**：现有成员恢复核对 `stored.meta.parentSession` 与恢复队长的 ID，不一致返回失败并要求 drain，见 [member-provisioning.ts 的固定版本](https://github.com/leinasi2014/dsh-agent-swarm/blob/51ddbe29bf35f39064cd99269d824e0b3a9e856d/src/runtime/member-provisioning.ts#L546-L563)。**〔推断〕**只改管理员绑定不足以完成接管；本轮没有执行该故障的运行时实验。
 - **CUR-03〔约束〕**：Team 继续拥有任务、attempt、审核、邮箱、依赖及预算的既有状态；Session 日志继续记录执行事实。部门不复制第二份任务状态机。扩展遵循[DSH 分层原则](01-dsh-principles.md)。
 - **CUR-04〔未验证〕**：部门实体存储、长期员工与任职接入、受支持的会话迁移、完整入职门及个人档案彻底删除均没有本节所需的完整实现证据。源码检索未见不等于官方没有能力；接入前核对目标安装包与真实组合，不改变现有兼容基线。
 
