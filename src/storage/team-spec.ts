@@ -13,8 +13,8 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamPlanDraft, TeamState } from '../domain/types.js'
-import { assertPlanDraftShape } from '../domain/state-validation.js'
+import type { TeamAppendChange, TeamId, TeamPlanDraft, TeamState } from '../domain/types.js'
+import { assertAppendChangesShape, assertPlanDraftShape } from '../domain/state-validation.js'
 import { MAX_TEAM_ALLOWED_SKILLS } from '../domain/team-skill-policy.js'
 import { assertPublicChat, publicChatSchema } from '../domain/public-message.js'
 
@@ -62,6 +62,11 @@ const memberSchema = z.object({
     .optional(),
   assignedSkills: z.array(z.string().min(1).max(128)).max(32).optional(),
   previousSessionIds: z.array(sessionId).max(64).optional(),
+  // Profile-window CAS marker (see team-domain-roster.setMemberProfile). Must
+  // stay declared here: the load path parses against this schema and STRIPS
+  // undeclared keys, so an undeclared marker would silently vanish on reload
+  // and reopen the concurrent-profile write race it guards.
+  profileChangedAtRevision: z.number().int().min(1).optional(),
 })
 
 const taskSchema = z.object({
@@ -243,6 +248,14 @@ const teamFields = {
       try { assertPlanDraftShape(value, 'planDraft'); return true }
       catch { return false }
     }, { message: 'invalid planDraft' }).optional(),
+    // §2.3 append-only change records (issue #294 slice 1). Optional and
+    // absent on pre-append records so they parse byte-identical (no
+    // fabricated backfill); undeclared keys would be stripped by the official
+    // load path, so this declaration IS the durability gate for the audit fact.
+    appendChanges: z.custom<TeamAppendChange[]>(value => {
+      try { assertAppendChangesShape(value, 'appendChanges'); return true }
+      catch { return false }
+    }, { message: 'invalid appendChanges' }).optional(),
     discardReason: codePointCapped(128, 'discardReason').optional(),
     // Managed-Team operation identity (MainBrainSessionId + turn). Optional and
     // absent on plain captain-owned compatibility Teams so pre-existing records

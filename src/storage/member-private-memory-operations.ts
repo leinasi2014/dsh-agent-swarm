@@ -14,6 +14,17 @@ import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import { TeamDomainError } from '../domain/error.js'
 import { nonEmpty } from '../domain/team-domain-shared.js'
+import {
+  assertCanonicalQualityMetadata,
+  bounded, boundedOrEmpty, canonicalizeClaim, canonicalizeObservationCore, claimSchema, observationCoreOf, observationSchema,
+  provenanceSchema, sameClaim, sameObservation,
+  type PrivateMemoryClaim, type PrivateMemoryNote, type PrivateMemoryObservation, type PrivateMemoryObservationCore, type PrivateMemoryProvenance,
+} from './member-private-memory-claim.js'
+
+// The claim/provenance vocabulary lives in member-private-memory-claim.ts
+// (≤600 mechanical split); re-exported so every downstream consumer keeps
+// importing them from this module unchanged.
+export type { PrivateMemoryClaim, PrivateMemoryObservation, PrivateMemoryProvenance } from './member-private-memory-claim.js'
 
 /** Root-confirmed v2 format bounds (separate from any future WRITE-admission threshold). */
 const PRIVATE_MEMORY_MAX_TAGS = 32
@@ -39,14 +50,6 @@ export const PRIVATE_MEMORY_MAINTENANCE_MAX_ROWS = 256
 export const PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS = 64
 
 const timestamp = z.number().int().min(0)
-const bounded = (maxBytes: number) => z.string().min(1).refine(
-  value => Buffer.byteLength(value, 'utf8') <= maxBytes,
-  `must not exceed ${maxBytes} UTF-8 bytes`,
-)
-const boundedOrEmpty = (maxBytes: number) => z.string().refine(
-  value => Buffer.byteLength(value, 'utf8') <= maxBytes,
-  `must not exceed ${maxBytes} UTF-8 bytes`,
-)
 
 const privateMemoryRecordSchema = z.object({
   schemaVersion: z.literal(1),
@@ -60,35 +63,30 @@ const privateMemoryRecordSchema = z.object({
   createdAt: timestamp,
 }).strict()
 
-/**
- * Host-derived provenance (strict durable union): either explicitly
- * unattributed, or a task attribution the Host derives from its OWN Team
- * snapshot after checking task/attempt ownership — never a model-supplied
- * actor or scope, and never a capability score. v1 rows have NO provenance on
- * disk and their origin is UNKNOWN: the note view leaves `provenance` absent
- * rather than inventing either branch (an unknown origin is not a recorded
- * 'unattributed' statement).
- */
-const provenanceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('unattributed') }).strict(),
-  z.object({
-    kind: z.literal('task'),
-    taskId: bounded(256),
-    attemptId: bounded(256).optional(),
-    teamRevision: z.number().int().min(0),
-    observedAt: timestamp,
-  }).strict(),
-])
-
 /** The complete payload every payload-bearing operation must durably carry. */
-const operationPayloadSchema = {
+const operationPayloadFields = {
   content: bounded(16_384),
   evidenceRefs: z.array(bounded(2_048)),
   tags: z.array(bounded(PRIVATE_MEMORY_MAX_TAG_BYTES)).max(PRIVATE_MEMORY_MAX_TAGS),
   applicability: boundedOrEmpty(PRIVATE_MEMORY_MAX_APPLICABILITY_BYTES),
 }
-const operationCommonSchema = {
-  schemaVersion: z.literal(2),
+const operationTargetSchema = {
+  targetMemoryId: bounded(128),
+  expectedHeadSeq: z.number().int().min(1),
+}
+
+/**
+ * Strict maintenance operation rows, one strict branch per (version,
+ * operation): schemaVersion 2 keeps the FROZEN pre-M3 shape byte-identically
+ * (no `claim` key at all — an old writer or reader sees nothing that moved);
+ * schemaVersion 3 is the explicit M3 quality row that MUST carry the
+ * declared `claim` block. A version-2 row gaining a `claim` key, or a v3 row
+ * missing it, is FOREIGN and rejects at domain open. `expectedHeadSeq` is
+ * the target note's newest-OPERATION physical seq at write time — no
+ * separate revision clock. revise/replace carry the COMPLETE payload
+ * (revise is a full replacement, not a PATCH); invalidate carries none.
+ */
+const operationCommonFields = {
   scope: bounded(4_096),
   teamId: bounded(256),
   memberSessionId: bounded(256),
@@ -97,24 +95,30 @@ const operationCommonSchema = {
   provenance: provenanceSchema,
   createdAt: timestamp,
 }
-const operationTargetSchema = {
-  targetMemoryId: bounded(128),
-  expectedHeadSeq: z.number().int().min(1),
-}
 
-/**
- * Strict v2 maintenance operation rows, one branch per operation, each `.strict()`
- * so a wrong branch (e.g. an add carrying a target) or an unknown field is
- * FOREIGN and rejects at domain open. `expectedHeadSeq` is the target note's
- * newest-OPERATION physical seq at write time — no separate revision clock.
- * revise/replace carry the COMPLETE payload (revise is a full replacement, not
- * a PATCH); invalidate carries none. Production writers never emit v2 rows.
- */
-const privateMemoryOperationSchema = z.discriminatedUnion('operation', [
-  z.object({ ...operationCommonSchema, operation: z.literal('add'), ...operationPayloadSchema }).strict(),
-  z.object({ ...operationCommonSchema, operation: z.literal('revise'), ...operationTargetSchema, ...operationPayloadSchema }).strict(),
-  z.object({ ...operationCommonSchema, operation: z.literal('invalidate'), ...operationTargetSchema }).strict(),
-  z.object({ ...operationCommonSchema, operation: z.literal('replace'), ...operationTargetSchema, ...operationPayloadSchema }).strict(),
+const operationBranch = (schemaVersion: 2 | 3 | 4, operation: 'add' | 'revise' | 'replace') => z.object({
+  schemaVersion: z.literal(schemaVersion),
+  ...operationCommonFields,
+  operation: z.literal(operation),
+  ...(operation === 'add' ? {} : operationTargetSchema),
+  ...operationPayloadFields,
+  // v3 = declared-quality row (claim mandatory); v4 = evidence row
+  // (Host-witnessed observation MANDATORY, claim optional); v2 byte-untouched.
+  ...(schemaVersion === 3 ? { claim: claimSchema }
+    : schemaVersion === 4 ? { observation: observationSchema, claim: claimSchema.optional() } : {}),
+}).strict()
+
+// Nested discrimination is the LEGAL multi-version shape: each version's own
+// union discriminates on unique operation values and the stored-record union
+// selects the version (a flat list would repeat discriminator values and
+// throw at schema CONSTRUCTION — host RED 2026-09).
+const operationsOfVersion = (schemaVersion: 2 | 3 | 4) => z.discriminatedUnion('operation', [
+  operationBranch(schemaVersion, 'add'),
+  operationBranch(schemaVersion, 'revise'),
+  ...(schemaVersion === 2
+    ? [z.object({ schemaVersion: z.literal(2), ...operationCommonFields, operation: z.literal('invalidate'), ...operationTargetSchema }).strict()]
+    : []),
+  operationBranch(schemaVersion, 'replace'),
 ])
 
 /** One durable note row (schemaVersion 1; the only shape writers emit). */
@@ -130,18 +134,15 @@ export interface MemberPrivateMemoryRecord {
   readonly createdAt: number
 }
 
-/** Host-derived operation provenance (durable v2 branches only). */
-export type PrivateMemoryProvenance =
-  | { readonly kind: 'unattributed' }
-  | { readonly kind: 'task'; readonly taskId: string; readonly attemptId?: string; readonly teamRevision: number; readonly observedAt: number }
-
 /**
- * One durable v2 maintenance operation row (compat READING only). The zod
- * four-branch union owns per-branch strictness; this projection shows the
+ * One durable v2/v3 maintenance operation row (compat READING only). The zod
+ * branch union owns per-branch strictness; this projection shows the
  * branch-optional fields as optional (presence is schema/fold-enforced).
+ * schemaVersion 2 = the frozen pre-M3 shape; 3 = the explicit M3 row that
+ * carries the declared `claim` block.
  */
 export interface MemberPrivateMemoryOperation {
-  readonly schemaVersion: 2
+  readonly schemaVersion: 2 | 3 | 4
   readonly operation: 'add' | 'revise' | 'invalidate' | 'replace'
   readonly scope: string
   readonly teamId: string
@@ -156,6 +157,8 @@ export interface MemberPrivateMemoryOperation {
   readonly evidenceRefs?: string[]
   readonly tags?: string[]
   readonly applicability?: string
+  readonly claim?: PrivateMemoryClaim
+  readonly observation?: PrivateMemoryObservation
 }
 
 /** The strict v1|v2 durable record union for the `memories` table. */
@@ -171,10 +174,10 @@ export type StoredPrivateMemoryRecord = MemberPrivateMemoryRecord | MemberPrivat
  * and invalidate, which has no payload, remains comparable by target/head/op.
  */
 export type PrivateMemoryNormalizedRequest =
-  | { readonly operation: 'add'; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
-  | { readonly operation: 'revise'; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'add'; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
+  | { readonly operation: 'revise'; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
   | { readonly operation: 'invalidate'; readonly targetMemoryId: string; readonly expectedHeadSeq: number }
-  | { readonly operation: 'replace'; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'replace'; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
 
 /**
  * The minimal receipt of ONE operation, rebuilt strictly from that operation's
@@ -204,51 +207,21 @@ export interface PrivateMemoryOperationIndexEntry {
   readonly request: PrivateMemoryNormalizedRequest
 }
 
-/**
- * One note in the reader's folded view — a distinct type from any stored record
- * (a v2 operation is never cast as a v1 row). `seq`/`memoryId`/`createdAt` stay
- * the ORIGINAL creation identity (ids and pagination offsets never drift);
- * `headSeq` is the newest operation seq touching the note; `status`/
- * `supersededBy` carry invalidate/replace results. `createdVia` explicitly
- * marks notes whose creation came from a v2 add/replace (never inferred from
- * status/headSeq). `provenance`/`tags`/`applicability` describe the CURRENT
- * payload's origin: ABSENT provenance means the legacy v1 origin is UNKNOWN
- * (never an invented 'unattributed'), present only once a v2 operation supplied
- * the payload; `applicability` '' means unconditional. A replace keeps the old
- * row superseded IN PLACE (its own payload origin stays unknown) and appends
- * the new note at the END of creation order; maintenance rows never surface
- * as notes.
- */
-export interface PrivateMemoryNote {
-  readonly scope: string
-  readonly teamId: string
-  readonly memberSessionId: string
-  readonly seq: number
-  readonly memoryId: string
-  readonly content: string
-  readonly evidenceRefs: string[]
-  readonly createdAt: number
-  readonly status: 'active' | 'invalidated' | 'superseded'
-  readonly headSeq: number
-  readonly supersededBy?: string
-  readonly provenance?: PrivateMemoryProvenance
-  readonly tags?: string[]
-  readonly applicability?: string
-  readonly createdVia?: { readonly operationId: string; readonly operation: 'add' | 'replace'; readonly seq: number }
-}
-
-/** One page of private-memory notes in member-local creation order. */
-export interface PrivateMemoryPage {
-  readonly rows: PrivateMemoryNote[]
-  readonly nextCursor?: number
-}
+// The folded note view + page types live in member-private-memory-claim.ts
+// (≤600 mechanical split); re-exported so every consumer keeps importing
+// them from this module unchanged.
+export type { PrivateMemoryNote, PrivateMemoryPage } from './member-private-memory-claim.js'
 
 // Single contained type-erasure: the zod union owns runtime validation at the
 // durable boundary; `StoredPrivateMemoryRecord` is its precise projection
-// (the team-spec/workflow-overlay pattern).
-export const storedPrivateMemoryRecordSchema = z.discriminatedUnion('schemaVersion', [
+// (the team-spec/workflow-overlay pattern). The outer union is NON-keyed
+// because the version branches themselves are the operation-discriminated
+// unions (a keyed outer union over them is not a legal zod construction).
+export const storedPrivateMemoryRecordSchema = z.union([
   privateMemoryRecordSchema,
-  privateMemoryOperationSchema,
+  operationsOfVersion(2),
+  operationsOfVersion(3),
+  operationsOfVersion(4),
 ]) as unknown as z.ZodType<StoredPrivateMemoryRecord>
 
 /** One durable record key: the scope + Team + member isolation tuple plus local seq. */
@@ -292,16 +265,37 @@ export function foldHistory(
     provenance?: PrivateMemoryProvenance
     tags?: string[]
     applicability?: string
+    claim?: PrivateMemoryClaim
+    observation?: PrivateMemoryObservation
     createdVia?: { operationId: string; operation: 'add' | 'replace'; seq: number }
   }
   const tampered = (reason: string): TeamDomainError =>
     new TeamDomainError(`a private-memory partition history is not foldable: ${reason}`, 'TEAM_PRIVATE_MEMORY_TAMPERED')
+  // Shared reconstructions (dedup of the add/replace note build and the
+  // revise/replace request expansion): the branches differ ONLY in the label
+  // passed here. Field order and copies are exactly as the inline originals.
+  type Payload = NonNullable<ReturnType<typeof payloadOf>>
+  const newMutableNote = (memoryId: string, record: MemberPrivateMemoryOperation, payload: Payload, provenance: PrivateMemoryProvenance, createdViaOperation: 'add' | 'replace'): MutableNote => ({
+    memoryId, seq: record.seq, content: payload.content,
+    evidenceRefs: payload.evidenceRefs, createdAt: record.createdAt,
+    status: 'active', headSeq: record.seq, provenance,
+    tags: payload.tags, applicability: payload.applicability,
+    ...(payload.claim === undefined ? {} : { claim: structuredClone(payload.claim) }),
+    ...(record.observation === undefined ? {} : { observation: structuredClone(record.observation) }),
+    createdVia: { operationId: record.operationId, operation: createdViaOperation, seq: record.seq },
+  })
+  const payloadRequest = (operation: 'revise' | 'replace', targetMemoryId: string, expectedHeadSeq: number, payload: Payload): PrivateMemoryOperationIndexEntry['request'] => ({
+    operation, targetMemoryId, expectedHeadSeq,
+    content: payload.content, evidenceRefs: payload.evidenceRefs, tags: payload.tags, applicability: payload.applicability,
+    ...(payload.claim === undefined ? {} : { claim: structuredClone(payload.claim) }),
+    ...(payload.observation === undefined ? {} : { observation: { ...payload.observation } }),
+  })
   // Canonical payload: structural bounds live in the schema; this fold REALLY
   // enforces normalization. The returned object is a fresh deep copy, so no
   // receipt or note ever aliases a durable row.
   const payloadOf = (record: MemberPrivateMemoryOperation, requirePayload: boolean):
-    { content: string, evidenceRefs: string[], tags: string[], applicability: string } | undefined => {
-    const { content, evidenceRefs, tags, applicability } = record
+    { content: string, evidenceRefs: string[], tags: string[], applicability: string, claim?: PrivateMemoryClaim, observation?: PrivateMemoryObservationCore } | undefined => {
+    const { content, evidenceRefs, tags, applicability, claim, observation } = record
     if (content === undefined && evidenceRefs === undefined && tags === undefined && applicability === undefined) {
       if (requirePayload) throw tampered(`operation '${record.operationId}' lacks the complete payload`)
       return undefined
@@ -321,7 +315,17 @@ export function foldHistory(
     if (applicability !== '' && applicability !== applicability.trim()) {
       throw tampered(`operation '${record.operationId}' applicability is not canonical (trimmed)`)
     }
-    return { content, evidenceRefs: [...evidenceRefs], tags: [...tags], applicability }
+    // DECLARED + WITNESSED metadata (M3): a present quality/observation block
+    // must match its canonical invariants; absent legacy rows stay untouched.
+    assertCanonicalQualityMetadata({ claim, observation }, tampered)
+    // Request-side projection: Host stamp fields stay out of the normalized
+    // input like all Host metadata; the note view keeps the complete block.
+    const observationCore = observation === undefined ? undefined : observationCoreOf(observation)
+    return {
+      content, evidenceRefs: [...evidenceRefs], tags: [...tags], applicability,
+      ...(claim === undefined ? {} : { claim: structuredClone(claim) }),
+      ...(observationCore === undefined ? {} : { observation: observationCore }),
+    }
   }
   const notes: MutableNote[] = []
   const index: PrivateMemoryOperationIndexEntry[] = []
@@ -354,13 +358,7 @@ export function foldHistory(
       const payload = payloadOf(record, true)!
       const memoryId = `private-memory-${record.seq}`
       if (byId.has(memoryId)) throw tampered(`add operation '${record.operationId}' note id '${memoryId}' collides`)
-      const note: MutableNote = {
-        memoryId, seq: record.seq, content: payload.content,
-        evidenceRefs: payload.evidenceRefs, createdAt: record.createdAt,
-        status: 'active', headSeq: record.seq, provenance,
-        tags: payload.tags, applicability: payload.applicability,
-        createdVia: { operationId: record.operationId, operation: 'add', seq: record.seq },
-      }
+      const note = newMutableNote(memoryId, record, payload, provenance, 'add')
       notes.push(note)
       byId.set(memoryId, note)
       index.push({
@@ -396,6 +394,12 @@ export function foldHistory(
         target.evidenceRefs = payload.evidenceRefs
         target.tags = payload.tags
         target.applicability = payload.applicability
+        // FULL replacement semantics for the declared/witnessed dimensions:
+        // a revise re-witnesses/clears, never silently keeps stale metadata.
+        if (payload.claim === undefined) delete target.claim
+        else target.claim = structuredClone(payload.claim)
+        if (record.observation === undefined) delete target.observation
+        else target.observation = structuredClone(record.observation)
         target.provenance = provenance
         target.headSeq = record.seq
         index.push({
@@ -403,10 +407,7 @@ export function foldHistory(
             operationId: record.operationId, operation: 'revise', operationSeq: record.seq,
             resultMemoryId: target.memoryId, headSeq: record.seq, status: target.status,
           },
-          request: {
-            operation: 'revise', targetMemoryId, expectedHeadSeq,
-            content: payload.content, evidenceRefs: payload.evidenceRefs, tags: payload.tags, applicability: payload.applicability,
-          },
+          request: payloadRequest('revise', targetMemoryId, expectedHeadSeq, payload),
         })
         break
       }
@@ -430,13 +431,7 @@ export function foldHistory(
         target.status = 'superseded'
         target.supersededBy = replacementId
         target.headSeq = record.seq
-        const replacement: MutableNote = {
-          memoryId: replacementId, seq: record.seq, content: payload.content,
-          evidenceRefs: payload.evidenceRefs, createdAt: record.createdAt,
-          status: 'active', headSeq: record.seq, provenance,
-          tags: payload.tags, applicability: payload.applicability,
-          createdVia: { operationId: record.operationId, operation: 'replace', seq: record.seq },
-        }
+        const replacement = newMutableNote(replacementId, record, payload, provenance, 'replace')
         notes.push(replacement)
         byId.set(replacementId, replacement)
         index.push({
@@ -445,10 +440,7 @@ export function foldHistory(
             resultMemoryId: replacementId, headSeq: record.seq, status: 'active',
             replacedMemoryId: targetMemoryId,
           },
-          request: {
-            operation: 'replace', targetMemoryId, expectedHeadSeq,
-            content: payload.content, evidenceRefs: payload.evidenceRefs, tags: payload.tags, applicability: payload.applicability,
-          },
+          request: payloadRequest('replace', targetMemoryId, expectedHeadSeq, payload),
         })
         break
       }
@@ -464,6 +456,8 @@ export function foldHistory(
       ...(note.provenance === undefined ? {} : { provenance: structuredClone(note.provenance) }),
       ...(note.tags === undefined ? {} : { tags: note.tags }),
       ...(note.applicability === undefined ? {} : { applicability: note.applicability }),
+      ...(note.claim === undefined ? {} : { claim: structuredClone(note.claim) }),
+      ...(note.observation === undefined ? {} : { observation: structuredClone(note.observation) }),
       ...(note.createdVia === undefined ? {} : { createdVia: { ...note.createdVia } }),
     })),
     index,
@@ -484,10 +478,10 @@ export function foldHistory(
  * time are Host-derived and deliberately NOT expressible in this input.
  */
 export type PrivateMemoryMaintenanceInput =
-  | { readonly operation: 'add'; readonly operationId: string; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
-  | { readonly operation: 'revise'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'add'; readonly operationId: string; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
+  | { readonly operation: 'revise'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
   | { readonly operation: 'invalidate'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number }
-  | { readonly operation: 'replace'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string }
+  | { readonly operation: 'replace'; readonly operationId: string; readonly targetMemoryId: string; readonly expectedHeadSeq: number; readonly content: string; readonly evidenceRefs: readonly string[]; readonly tags: readonly string[]; readonly applicability: string; readonly claim?: PrivateMemoryClaim; readonly observation?: PrivateMemoryObservationCore }
 
 const maintenanceInvalid = (field: string): TeamDomainError =>
   new TeamDomainError(`private-memory maintenance input is invalid: ${field}`, 'TEAM_INPUT_INVALID')
@@ -508,7 +502,7 @@ const sameStrings = (left: readonly string[], right: readonly string[]): boolean
 export function canonicalizeMaintenanceInput(input: PrivateMemoryMaintenanceInput): PrivateMemoryMaintenanceInput {
   if (!['add', 'revise', 'invalidate', 'replace'].includes(input.operation)) throw maintenanceInvalid('operation')
   const operationId = nonEmpty(input.operationId, 'operation id', 128)
-  const canonicalPayload = (payload: { content: string; evidenceRefs: readonly string[]; tags: readonly string[]; applicability: string }) => {
+  const canonicalPayload = (payload: { content: string; evidenceRefs: readonly string[]; tags: readonly string[]; applicability: string; claim?: PrivateMemoryClaim; observation?: PrivateMemoryObservationCore }) => {
     const content = nonEmpty(payload.content, 'content', 16_384)
     if (payload.evidenceRefs.length > PRIVATE_MEMORY_MAX_WRITE_EVIDENCE_REFS) throw maintenanceLimit('evidence reference')
     const evidenceRefs = payload.evidenceRefs.map(reference => nonEmpty(reference, 'evidence reference', 2_048))
@@ -517,7 +511,15 @@ export function canonicalizeMaintenanceInput(input: PrivateMemoryMaintenanceInpu
     if (tags.length > PRIVATE_MEMORY_MAX_TAGS) throw maintenanceLimit('tag')
     const applicability = payload.applicability.trim()
     if (Buffer.byteLength(applicability, 'utf8') > PRIVATE_MEMORY_MAX_APPLICABILITY_BYTES) throw maintenanceLimit('applicability')
-    return { content, evidenceRefs, tags, applicability }
+    const claim = canonicalizeClaim(payload.claim, maintenanceInvalid)
+    // Witness core re-validated at the write gate; a forged complete block
+    // can never ride through — only the six core fields are even readable.
+    const observation = payload.observation === undefined ? undefined : canonicalizeObservationCore(payload.observation, maintenanceInvalid)
+    return {
+      content, evidenceRefs, tags, applicability,
+      ...(claim === undefined ? {} : { claim }),
+      ...(observation === undefined ? {} : { observation }),
+    }
   }
   if (input.operation === 'invalidate') {
     if (!Number.isInteger(input.expectedHeadSeq) || input.expectedHeadSeq < 1) throw maintenanceInvalid('expectedHeadSeq')
@@ -537,15 +539,17 @@ export function canonicalizeMaintenanceInput(input: PrivateMemoryMaintenanceInpu
 
 /**
  * Retry-comparison equivalence over the COMPLETE normalized request only
- * (operation branch, target/head, branch payload). Host metadata (provenance,
- * Host time, assigned seq) is not part of either side, so a re-observed Host
- * context can never change whether a retry is the same logical operation.
+ * (operation branch, target/head, branch payload — witnessed core included,
+ * Host stamp fields excluded). Host metadata is not part of either side, so
+ * a re-observed Host context never changes whether a retry is the same
+ * logical operation.
  */
 export function normalizedRequestsEqual(left: PrivateMemoryNormalizedRequest, right: PrivateMemoryNormalizedRequest): boolean {
   if (left.operation !== right.operation) return false
   if (left.operation === 'add' && right.operation === 'add') {
     return left.content === right.content && sameStrings(left.evidenceRefs, right.evidenceRefs)
       && sameStrings(left.tags, right.tags) && left.applicability === right.applicability
+      && sameClaim(left.claim, right.claim) && sameObservation(left.observation, right.observation)
   }
   if (left.operation === 'invalidate' && right.operation === 'invalidate') {
     return left.targetMemoryId === right.targetMemoryId && left.expectedHeadSeq === right.expectedHeadSeq
@@ -555,6 +559,7 @@ export function normalizedRequestsEqual(left: PrivateMemoryNormalizedRequest, ri
     return left.targetMemoryId === other.targetMemoryId && left.expectedHeadSeq === other.expectedHeadSeq
       && left.content === other.content && sameStrings(left.evidenceRefs, other.evidenceRefs)
       && sameStrings(left.tags, other.tags) && left.applicability === other.applicability
+      && sameClaim(left.claim, other.claim) && sameObservation(left.observation, right.observation)
   }
   return false
 }

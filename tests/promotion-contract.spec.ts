@@ -97,7 +97,7 @@ describe('promotion ledger', () => {
     const forged = [{ ...records[0]!, actor: 'attacker' }]
     expect((await verifyLedgerChain(forged)).ok).toBe(false)
     // reordering breaks both seq monotonicity and the hash links
-    expect((await verifyLedgerChain([...records].reverse())).ok).toBe(false)
+    expect((await verifyLedgerChain(records.toReversed())).ok).toBe(false)
     // appending onto a broken chain fails loud
     await expect(appendLedgerRecord(ledgerPath, { action: 'rollback', actor: 'test', toGen: 0 })).resolves.toBeDefined()
   })

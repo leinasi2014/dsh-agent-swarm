@@ -29,6 +29,12 @@ export async function cancelTask(deps: TeamDomainDeps, scope: TeamScope, teamId:
     }
     expectDomain(task.revision === input.expectedTaskRevision, 'Task revision changed', 'TEAM_TASK_STALE_REVISION')
     expectDomain(!['completed', 'failed', 'cancelled'].includes(task.status), 'Only unfinished tasks can be cancelled', 'TEAM_TASK_NOT_CANCELLABLE')
+    // A cancelled task leaves the active graph, so any survivor that still lists
+    // it in blockedBy would become permanently unreadable (TEAM_STATE_CORRUPT).
+    const dependents = team.tasks.filter(candidate => candidate.id !== task.id
+      && candidate.status !== 'cancelled' && candidate.blockedBy.includes(task.id))
+    expectDomain(dependents.length === 0,
+      `task "${task.id}" still has active dependents: ${dependents.map(item => item.id).join(', ')}`, 'TEAM_TASK_HAS_DEPENDENTS')
     const attempt = task.currentAttemptId === undefined ? undefined : team.attempts.find(item => item.id === task.currentAttemptId)
     effect = guards?.captureInterruption?.(structuredClone(team), structuredClone(task), attempt === undefined ? undefined : structuredClone(attempt))
     const at = deps.now(), taskRevision = task.revision + 1

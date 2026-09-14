@@ -73,18 +73,31 @@ export class RuntimeMutationSurface {
       }
     }
     exact()
-    const membership = await this.deps.domain().requireMembership(scope, agent.id)
-    const existing = membership.team.publicChat?.messages.find(row => row.author.kind === 'agent'
-      && row.author.sessionId === agent.id && row.requestId === requestId)
-    if (existing === undefined && (await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
-      throw new TeamDomainError('Public message requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
+    let membership = await this.deps.domain().requireMembership(scope, agent.id)
+    const teamId = membership.team.id, captainId = membership.team.captainSessionId
+    for (let attempt = 0; ; attempt++) {
+      exact()
+      if (membership.team.id !== teamId || membership.team.captainSessionId !== captainId)
+        throw new TeamDomainError('Public message target changed during admission', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+      const existing = membership.team.publicChat?.messages.find(row => row.author.kind === 'agent'
+        && row.author.sessionId === agent.id && row.requestId === requestId)
+      if (existing === undefined && (await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
+        throw new TeamDomainError('Public message requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
+      }
+      exact()
+      try {
+        return await this.deps.domain().appendPublicMessage(scope, teamId, { author: { kind: 'agent', sessionId: agent.id },
+          requestId, ...(replyTo === undefined ? {} : { replyTo }), ...(existing !== undefined && !('formatVersion' in existing) ? { text }
+            : { formatVersion: 2 as const, content: [{ type: 'text' as const, text }] }),
+          expectedCaptainSessionId: captainId, expectedTeamRevision: membership.team.revision, assertExecution: exact })
+      } catch (error) {
+        // Receipt commits may race lineage IO. Retry only stale revisions, at
+        // most three admissions, without asking the model to duplicate its call.
+        if (!(error instanceof TeamDomainError) || error.code !== 'TEAM_REVISION_CONFLICT' || attempt >= 2) throw error
+        exact()
+        membership = await this.deps.domain().requireMembership(scope, agent.id)
+      }
     }
-    exact()
-    exec.signal.throwIfAborted()
-    return await this.deps.domain().appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
-      requestId, ...(replyTo === undefined ? {} : { replyTo }), ...(existing !== undefined && !('formatVersion' in existing) ? { text }
-        : { formatVersion: 2 as const, content: [{ type: 'text' as const, text }] }),
-      expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision, assertExecution: exact })
   }
 
   async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {

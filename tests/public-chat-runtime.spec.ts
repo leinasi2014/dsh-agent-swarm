@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
 import { publicDeliveries } from '../src/domain/public-message.js'
@@ -13,6 +13,44 @@ import { messageClaimed, messagePending } from '../src/runtime/session-acceptanc
 import { MessageDelivery } from '../src/runtime/message-delivery.js'
 import { restartTool as tool, RESTART_SIGNAL as SIGNAL } from './helpers/restart-real-composition.js'
 import { ROOT, Recording, HeldRecording, setup, createTeam, addPublicMembers, captureRestartSnapshot, publicClient } from './helpers/public-chat-real-composition.js'
+
+it('publishes a first public post through the real model tool pipeline without tasks, private output or another wake', async () => {
+  class PublicPoster extends Recording {
+    posts = 0
+    override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+      if (options.sessionId !== ROOT && this.posts < 2) {
+        this.requests.push(options)
+        const id = ToolCallId(`first-public-post-${++this.posts}`)
+        const args = JSON.stringify({ request_id: 'first-post-once', text: '公开进度：开始检查群聊。' })
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'agent_swarm_public_post', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'agent_swarm_public_post', arguments: args } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      yield* super.stream(options)
+    }
+  }
+  const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-post-')), adapter = new PublicPoster()
+  const f = await setup(sandbox, adapter, true)
+  try {
+    const { root, captain, teamId, scope } = await createTeam(f, sandbox)
+    const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+    expect(adapter.posts).toBe(2)
+    expect(team.publicChat!.messages).toHaveLength(1)
+    expect(team.publicChat!.messages[0]).toMatchObject({ sequence: 1, formatVersion: 2, author: { kind: 'agent', sessionId: captain.id }, delivery: { kind: 'not-requested' } })
+    expect(team.publicChat!.messages[0]!.replyTo).toBeUndefined()
+    expect([team.tasks, team.attempts, team.messages]).toEqual([[], [], []])
+    const count = adapter.requests.length, call = await publicClient(f, teamId), history = await call('history')
+    expect(history.entries).toHaveLength(1)
+    expect(history.entries[0].text).toBe('公开进度：开始检查群聊。')
+    expect(JSON.stringify(history)).not.toMatch(/PRIVATE SESSION OUTPUT|bindingDigest|frameVersion|parentSessionId|requestId/)
+    expect((await tool(f.ctx, root, 'root-post-denied', 'agent_swarm_public_post', { request_id: 'forged', text: 'deny' })).isError).toBe(true)
+    expect((await tool(f.ctx, captain, 'stale-post-denied', 'agent_swarm_public_post', { request_id: 'stale', text: 'deny' })).isError).toBe(true)
+    await expect(f.ctx.agentSwarm.publicReply({ agent: root, signal: SIGNAL }, 'missing-reply', '', 'deny')).rejects.toMatchObject({ code: 'TEAM_PUBLIC_REPLY_INVALID' })
+    expect(adapter.requests.length).toBe(count)
+  } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+}, 30_000)
 
 it('authenticates the actual route, persists literal user input, exposes only explicit public replies and deduplicates retries', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-http-'))

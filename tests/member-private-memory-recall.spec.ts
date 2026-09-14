@@ -277,12 +277,12 @@ describe('read-only store projections for recall (task-6)', () => {
     const mounted = await mountStore()
     roots.push(mounted)
     const add = (operationId: string, content: string, tags: string[]) => mounted.store.appendMaintenance('s', 't', 'm',
-      { operation: 'add', operationId, content, evidenceRefs: [], tags, applicability: 'general' }, { kind: 'unattributed' }, write => write())
+      { operation: 'add', operationId, content, evidenceRefs: [], tags, applicability: 'general' }, { kind: 'unattributed' }, undefined, write => write())
     await add('op-1', 'first active', ['keep'])
     await add('op-2', 'to be invalidated', ['drop'])
     await add('op-3', 'third active', ['keep'])
     await mounted.store.appendMaintenance('s', 't', 'm',
-      { operation: 'invalidate', operationId: 'op-4', targetMemoryId: 'private-memory-2', expectedHeadSeq: 2 }, { kind: 'unattributed' }, write => write())
+      { operation: 'invalidate', operationId: 'op-4', targetMemoryId: 'private-memory-2', expectedHeadSeq: 2 }, { kind: 'unattributed' }, undefined, write => write())
     const active = mounted.store.recentActiveNotes('s', 't', 'm', 64)
     expect(active.map(note => note.memoryId)).toEqual(['private-memory-3', 'private-memory-1'])
     expect(mounted.store.recentActiveNotes('s', 't', 'm', 1).map(note => note.memoryId)).toEqual(['private-memory-3'])

@@ -1,6 +1,6 @@
 /**
  * Reserved official seams for the A-class capabilities listed in
- * docs/11-official-first-development.md.
+ * docs/12-official-interface-architecture.md.
  *
  * Every A-class capability has exactly one entry point here. Today each probe
  * fails and the caller keeps the official default; when the official surface

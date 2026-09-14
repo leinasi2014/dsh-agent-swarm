@@ -679,24 +679,31 @@ export async function listNodeProcessesWindows() {
 
 /**
  * Assert the four-domain isolation invariant for one acceptance drill: every
- * acceptance path (home/storage/sessions/workspace/evidence) must live inside
- * the drill domain, the drill domain must live inside drills/, and none of
+ * evidence stays in drills/. Windows account execution may place writable
+ * home/storage/sessions/workspace in an explicit separate execution root. None of
  * them may intersect the control domain, any lkg/candidate path, or a
  * foreign home. Returned as data; the caller fails loud on any violation.
  */
-export function acceptanceIsolation(drillDir, control) {
+export function acceptanceIsolation(drillDir, control, executionRoot) {
   const violations = []
   const drill = resolve(drillDir)
+  const execution = executionRoot === undefined ? drill : resolve(executionRoot)
+  if (executionRoot !== undefined) {
+    for (const protectedRoot of [control.controlHome, control.lkgDir, control.candidatesDir, control.drillsDir]) {
+      if (isInside(protectedRoot, execution) || isInside(execution, protectedRoot)) violations.push('candidate execution root intersects a controller authority')
+    }
+  }
   if (!isInside(control.drillsDir, drill)) violations.push(`drill domain ${drill} is not inside drills/`)
   const domains = {
-    home: join(drill, 'home'),
-    storageRoot: join(drill, 'storage-root'),
-    sessionsRoot: join(drill, 'sessions-root'),
-    workspace: join(drill, 'workspace'),
+    home: join(execution, 'home'),
+    storageRoot: join(execution, 'storage-root'),
+    sessionsRoot: join(execution, 'sessions-root'),
+    workspace: join(execution, 'workspace'),
     evidence: join(drill, 'evidence'),
   }
   for (const [name, path] of Object.entries(domains)) {
-    if (!isInside(drill, path)) violations.push(`acceptance ${name} escapes the drill domain: ${path}`)
+    if (!isInside(name === 'evidence' ? drill : execution, path)) violations.push(`acceptance ${name} escapes its domain: ${path}`)
+    if (executionRoot !== undefined && name !== 'evidence' && (isInside(drill, path) || isInside(path, drill))) violations.push(`candidate ${name} intersects controller evidence`)
     if (isInside(control.controlHome, path) || isInside(path, control.controlHome)) violations.push(`acceptance ${name} intersects the control home`)
     if (isInside(control.lkgDir, path) || isInside(path, control.lkgDir)) violations.push(`acceptance ${name} intersects the LKG domain`)
     if (isInside(control.candidatesDir, path) || isInside(path, control.candidatesDir)) violations.push(`acceptance ${name} intersects the candidates domain`)

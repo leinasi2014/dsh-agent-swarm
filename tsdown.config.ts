@@ -13,11 +13,8 @@ const clientExternals = new Set([
 
 export default defineConfig([
   {
-    // Host build face: BOTH official Host entries live in ONE build graph so
-    // shared chunks stay singletons across `.` and `./skills` (one
-    // TeamDomainError class, one symbol set). The skills entry is Root
-    // approved; the main entry face is otherwise unchanged.
-    entry: { index: 'src/index.ts', skills: 'src/skills/plugin.ts' },
+    // Preserve the accepted Host build face byte-for-byte in configuration.
+    entry: { index: 'src/index.ts' },
     format: ['esm'],
     outDir: 'lib',
     clean: false,

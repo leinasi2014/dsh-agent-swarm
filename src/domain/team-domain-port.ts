@@ -15,6 +15,7 @@ import type {
   TaskAttempt,
   TaskId,
   TeamAnnouncement,
+  TeamAppendChange,
   TeamBudget,
   TeamCommunicationIntensity,
   TeamId,
@@ -169,6 +170,14 @@ export interface TeamDomainPort {
   setPlanDraft(scope: TeamScope, teamId: TeamId, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState>
   /** Plan-first: atomic staged -> active commit with the provisioned Captain id. */
   approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string, captainRoute?: TeamModelRoute): Promise<TeamState>
+  /**
+   * Append-only change on an ACTIVE Team (§2.3, issue #294 slice 1): one
+   * durable change with a stable id (idempotent replay), a Captain actor and
+   * new member declarations plus new tasks that depend only on the same
+   * append. Never a plan mutation; never overwrites existing members or the
+   * existing task DAG.
+   */
+  appendActiveTeam(scope: TeamScope, teamId: TeamId, expectedRevision: number, change: TeamAppendChange): Promise<TeamState>
   /** Plan-first: archive one staged draft without creating work (idempotent). */
   discardStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number): Promise<TeamState>
   createTeam(

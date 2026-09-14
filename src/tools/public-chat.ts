@@ -2,7 +2,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { register } from './shared.js'
-import { registerPublicChatReadTools } from './public-chat-read.js'
 
 const publicMessageSchema = { type: 'object', additionalProperties: false, properties: {
   message_id: { type: 'string', required: true }, sequence: { type: 'number', required: true },
@@ -12,7 +11,7 @@ const publicMessageSchema = { type: 'object', additionalProperties: false, prope
 export function registerPublicChatTools(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_public_post',
-    description: 'Start a public message in your managed Team, including its first conversation or a concise progress, blocker or outcome report. Your exact executing Session is the author. Publish only deliberately public text, not private logs or memory. Use one stable request_id per logical post and reuse it unchanged if the result is uncertain. This creates no task and wakes nobody. For an answer to an existing public message, use agent_swarm_public_reply instead.',
+    description: 'Start a public message in your managed Team, including its first conversation or a concise progress, blocker or outcome report. Your exact executing Session is the author. Publish only deliberately public text, not private logs or memory. Honor explicit requests to pause or keep work private. Use one stable request_id per logical post and reuse it unchanged if the result is uncertain. This creates no task and wakes nobody. For an answer to an existing public message, use agent_swarm_public_reply instead.',
     parameters: { request_id: { type: 'string', required: true }, text: { type: 'string', required: true } },
     output: {
       schema: publicMessageSchema,
@@ -36,5 +35,4 @@ export function registerPublicChatTools(ctx: Context, runtime: AgentSwarmRuntime
       return { message_id: result.message.id, sequence: result.message.sequence, team_revision: result.teamRevision, replayed: result.replayed }
     },
   }), 'public reply tool')
-  registerPublicChatReadTools(ctx, runtime)
 }
