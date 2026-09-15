@@ -15,6 +15,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { controlRootLayout, sha256File, writeJsonFile } from './lib.mjs'
 import { git, run, withDetachedWorktree } from './runner.mjs'
+import { openCandidateSession } from './candidate-session.mjs'
 
 /** Lanes of the non-degradable acceptance floor (docs §2.3 A1 selection). */
 export const FLOOR_LANES = ['typecheck', 'typecheck:test', 'test', 'verify:scenarios', 'build', 'verify:artifact']
@@ -35,11 +36,13 @@ function parseArgs(argv) {
     else if (argument === '--dogfood-root') args.dogfoodRoot = resolve(next())
     else if (argument === '--candidate-id') args.candidateId = next()
     else if (argument === '--note') args.note = next()
+    else if (argument === '--candidate-account-root') args.candidateAccountRoot = resolve(next())
     else throw new Error(`unknown argument ${argument}`)
   }
   for (const required of ['repo', 'commit', 'dogfoodRoot']) {
     if (args[required] === undefined) throw new Error(`--${required.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)} is required`)
   }
+  if (process.platform === 'win32' && args.candidateAccountRoot === undefined) throw new Error('--candidate-account-root is required on Windows; controller execution is not a fallback')
   return args
 }
 
@@ -78,28 +81,32 @@ async function main() {
   const logs = {}
 
   let frozenPkg
-  await withDetachedWorktree(args.repo, commitSha, async worktree => {
+  const commonDir = await git(args.repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+  if (commonDir.code !== 0) throw new Error('source Git authority is unavailable')
+  const candidate = process.platform === 'win32' ? await openCandidateSession(args.candidateAccountRoot, run, [args.dogfoodRoot, args.repo, commonDir.stdout.trim()]) : undefined
+  try { await withDetachedWorktree(args.repo, commitSha, async worktree => {
     const clean = await git(worktree, ['status', '--porcelain'])
     if (clean.code !== 0 || clean.stdout.trim() !== '') {
       throw new Error(`freeze worktree is not clean after checkout: ${clean.stdout || clean.stderr}`)
     }
     logs['worktree-status.txt'] = clean.stdout === '' ? 'clean\n' : clean.stdout
     frozenPkg = JSON.parse(await readFile(join(worktree, 'package.json'), 'utf8'))
-    const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: worktree })
+    const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: worktree, candidate })
     logs['install.log'] = install.stdout + install.stderr
     if (install.code !== 0) throw new Error(`pnpm install failed in the freeze worktree (exit ${install.code}) — see ${candidateDir}/install.log`)
-    const build = await run('pnpm', ['build'], { cwd: worktree })
+    const build = await run('pnpm', ['build'], { cwd: worktree, candidate })
     logs['build.log'] = build.stdout + build.stderr
     if (build.code !== 0) throw new Error(`pnpm build failed in the freeze worktree (exit ${build.code}) — see ${candidateDir}/build.log`)
-    const pack = await run('pnpm', ['pack', '--pack-destination', worktree], { cwd: worktree, env: { npm_config_ignore_scripts: 'true' } })
+    const pack = await run('pnpm', ['pack', '--pack-destination', worktree], { cwd: worktree, candidate, env: { npm_config_ignore_scripts: 'true' } })
     logs['pack.log'] = pack.stdout + pack.stderr
     if (pack.code !== 0) throw new Error(`pnpm pack failed in the freeze worktree (exit ${pack.code})`)
     const packed = /dsh-agent-swarm-[^\s]+\.tgz/.exec(pack.stdout)
     if (packed === null) throw new Error(`pnpm pack produced no dsh-agent-swarm tarball: ${pack.stdout}`)
     // Copy OUT of the worktree while it still exists — withDetachedWorktree
     // removes the worktree (and the packed tarball with it) on scope exit.
-    await copyFile(join(worktree, packed[0]), join(candidateDir, 'dsh-agent-swarm.tgz'))
-  }, 'agent-swarm-freeze')
+    if (candidate !== undefined) await candidate.copyOutput(join(worktree, packed[0]), join(candidateDir, 'dsh-agent-swarm.tgz'))
+    else await copyFile(join(worktree, packed[0]), join(candidateDir, 'dsh-agent-swarm.tgz'))
+  }, 'agent-swarm-freeze', candidate) } finally { await candidate?.dispose() }
   const tarballPath = join(candidateDir, 'dsh-agent-swarm.tgz')
   const tarballSha256 = await sha256File(tarballPath)
   const tarballBytes = (await stat(tarballPath)).size
@@ -125,7 +132,7 @@ async function main() {
   console.log(JSON.stringify({ frozen: true, candidateId, gitCommit: commitSha, gitTree: treeSha, tarballSha256, tarballBytes, candidateDir, cleanWorktree: true }, null, 2))
 }
 
-main().catch(error => {
+if (process.argv[1]?.replaceAll('\\', '/').endsWith('/scripts/promotion/freeze.mjs')) main().catch(error => {
   console.error(`freeze failed: ${error instanceof Error ? error.message : String(error)}`)
   process.exitCode = 1
 })
